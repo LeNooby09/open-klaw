@@ -19,7 +19,11 @@ import tech.lenooby09.openklaw.agent.ChatRequest
 import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
 import tech.lenooby09.openklaw.memory.MemoryManager
+import tech.lenooby09.openklaw.health.HealthCheckManager
+import tech.lenooby09.openklaw.observability.UsageTracker
 import tech.lenooby09.openklaw.security.RateLimiter
+import tech.lenooby09.openklaw.security.UserPermissionManager
+import tech.lenooby09.openklaw.security.UserToolPermissions
 import tech.lenooby09.openklaw.session.*
 import tech.lenooby09.openklaw.tools.CanvasTool
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
@@ -43,7 +47,10 @@ class GatewayServer(
 	private val channelRouter: ChannelRouter? = null,
 	private val webhookTriggerManager: WebhookTriggerManager? = null,
 	private val skillManager: SkillManager? = null,
-	private val skillRegistryClient: SkillRegistryClient? = null
+	private val skillRegistryClient: SkillRegistryClient? = null,
+	private val userPermissionManager: UserPermissionManager? = null,
+	private val healthCheckManager: HealthCheckManager? = null,
+	private val usageTracker: UsageTracker? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -94,8 +101,11 @@ class GatewayServer(
 				toolRoutes()
 				messagingRoutes()
 				webhookTriggerManager?.installRoutes(this, maxInputBytes)
-				webhookListRoute()
+ 			webhookListRoute()
 				skillRoutes()
+				permissionRoutes()
+				healthRoutes()
+				observabilityRoutes()
 			}
 		}.start(wait = false)
 
@@ -207,7 +217,9 @@ class GatewayServer(
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Message cannot be empty."))
 				return@post
 			}
-			val response = agentLoop.chat(session.username, req)
+ 		val allowedTools = userPermissionManager?.resolveAllowedTools(session.username, session.isAdmin)
+			usageTracker?.recordMessage(session.username)
+			val response = agentLoop.chat(session.username, req, allowedTools)
 			call.respond(response)
 		}
 
@@ -724,6 +736,172 @@ class GatewayServer(
 			val result = skillRegistryClient?.publish(req.skillId)
 				?: tech.lenooby09.openklaw.skills.SkillRegistryClient.PublishResult(false, "Registry client not available.")
 			call.respond(result)
+		}
+	}
+
+	private fun Routing.observabilityRoutes() {
+		if (usageTracker == null) return
+
+		// Global usage stats (admin only)
+		get("/api/usage") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(usageTracker.getGlobalStats())
+		}
+
+		// Per-user usage stats (admin only)
+		get("/api/usage/users") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(usageTracker.getAllUserStats())
+		}
+
+		// Presence / typing indicators
+		get("/api/presence") {
+			call.requireAuth() ?: return@get
+			call.respond(usageTracker.getPresentUsers())
+		}
+
+		// Heartbeat — update user presence
+		post("/api/presence/heartbeat") {
+			val session = call.requireAuth() ?: return@post
+			usageTracker.updatePresence(session.username)
+			call.respond(MessageResponse("OK"))
+		}
+	}
+
+	private fun Routing.healthRoutes() {
+		// Public health endpoint (no auth required) — returns aggregate status only
+		// Detailed per-component info is behind /api/health/diagnostics (admin only)
+		get("/api/health") {
+			if (healthCheckManager == null) {
+				call.respond(MessageResponse("OK"))
+				return@get
+			}
+			val report = healthCheckManager.runAll()
+			val statusCode = when (report.status) {
+				tech.lenooby09.openklaw.health.HealthStatus.HEALTHY -> HttpStatusCode.OK
+				tech.lenooby09.openklaw.health.HealthStatus.DEGRADED -> HttpStatusCode.OK
+				tech.lenooby09.openklaw.health.HealthStatus.UNHEALTHY -> HttpStatusCode.ServiceUnavailable
+			}
+			// Only expose aggregate status publicly — no component details
+			call.respond(statusCode, MessageResponse(report.status.name))
+		}
+
+		// Detailed diagnostics (admin only)
+		get("/api/health/diagnostics") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			if (healthCheckManager == null) {
+				call.respond(MessageResponse("Health check manager not configured."))
+				return@get
+			}
+			call.respond(healthCheckManager.runDiagnostics())
+		}
+
+		// Individual health check (admin only)
+		get("/api/health/{name}") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			if (healthCheckManager == null) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Health check manager not configured."))
+				return@get
+			}
+			val name = call.parameters["name"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing check name."))
+				return@get
+			}
+			val result = healthCheckManager.runCheck(name)
+			if (result != null) {
+				call.respond(result)
+			} else {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Health check '$name' not found."))
+			}
+		}
+	}
+
+	private fun Routing.permissionRoutes() {
+		if (userPermissionManager == null) return
+
+		// List all user permissions (admin only)
+		get("/api/permissions") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(userPermissionManager.listPermissions())
+		}
+
+		// Get permissions for a specific user (admin only)
+		get("/api/permissions/{username}") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			val username = call.parameters["username"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing username."))
+				return@get
+			}
+			val tools = userPermissionManager.getUserTools(username)
+			if (tools != null) {
+				call.respond(UserToolPermissions(username, tools))
+			} else {
+				call.respond(MessageResponse("User '$username' has unrestricted access."))
+			}
+		}
+
+		// Set permissions for a user (admin only)
+		post("/api/permissions/{username}") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val username = call.parameters["username"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing username."))
+				return@post
+			}
+			if (!isValidUsername(username)) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid username format."))
+				return@post
+			}
+			val req = call.receiveBounded<SetPermissionsRequest>() ?: return@post
+			userPermissionManager.setUserTools(username, req.allowedTools.toSet())
+			call.respond(MessageResponse("Permissions updated for user '$username'."))
+		}
+
+		// Remove permissions for a user (reverts to unrestricted) (admin only)
+		delete("/api/permissions/{username}") {
+			val session = call.requireAuth() ?: return@delete
+			if (!call.verifyCsrf(session)) return@delete
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@delete
+			}
+			val username = call.parameters["username"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing username."))
+				return@delete
+			}
+			if (userPermissionManager.removeUserPermissions(username)) {
+				call.respond(MessageResponse("Permissions removed for user '$username'. Access is now unrestricted."))
+			} else {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("No permission entry found for user '$username'."))
+			}
 		}
 	}
 

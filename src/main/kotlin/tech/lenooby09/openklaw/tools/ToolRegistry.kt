@@ -2,6 +2,7 @@ package tech.lenooby09.openklaw.tools
 
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import tech.lenooby09.openklaw.agent.RetryPolicy
 import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
@@ -16,7 +17,9 @@ data class ToolInfo(
  * Central registry for all tools available to the agent.
  * Tools can be registered and unregistered at runtime.
  */
-class ToolRegistry {
+class ToolRegistry(
+	private val toolRetryPolicy: RetryPolicy = RetryPolicy.TOOL_DEFAULT
+) {
 	private val logger = LoggerFactory.getLogger(ToolRegistry::class.java)
 	private val tools = ConcurrentHashMap<String, Tool>()
 
@@ -77,8 +80,14 @@ class ToolRegistry {
 		}
 
 		val startTime = System.currentTimeMillis()
+		// Only retry idempotent tools — non-idempotent tools (shell, filesystem, etc.)
+		// could cause unintended side effects if re-executed after partial completion
+		val effectivePolicy = if (tool.idempotent) toolRetryPolicy else RetryPolicy.NONE
 		return try {
-			val result = tool.execute(request.arguments)
+			val result = effectivePolicy.execute("Tool '${request.toolName}'") { attempt ->
+				if (attempt > 1) logger.debug("Retrying tool '${request.toolName}' (attempt $attempt)")
+				tool.execute(request.arguments)
+			}
 			result.copy(executionTimeMs = System.currentTimeMillis() - startTime)
 		} catch (e: Exception) {
 			logger.error("Tool '${request.toolName}' execution failed: ${e.message}", e)

@@ -1,9 +1,13 @@
 package tech.lenooby09.openklaw.llm
 
 import org.slf4j.LoggerFactory
+import tech.lenooby09.openklaw.agent.RetryPolicy
 import tech.lenooby09.openklaw.config.LlmConfig
 
-class LlmOrchestrator(private val config: LlmConfig) {
+class LlmOrchestrator(
+	private val config: LlmConfig,
+	private val retryPolicy: RetryPolicy = RetryPolicy.LLM_DEFAULT
+) {
 	private val logger = LoggerFactory.getLogger(LlmOrchestrator::class.java)
 	private val providers: MutableList<LlmProvider> = mutableListOf()
 
@@ -40,12 +44,14 @@ class LlmOrchestrator(private val config: LlmConfig) {
 			return providers.first().complete(messages, "")
 		}
 
-		for (provider in providers) {
+ 	for (provider in providers) {
 			if (!provider.isAvailable) continue
 			try {
-				return provider.complete(messages, "")
+				return retryPolicy.execute("LLM complete (${provider.name})") {
+					provider.complete(messages, "")
+				}
 			} catch (e: Exception) {
-				logger.warn("Provider ${provider.name} failed, trying next: ${e.message}")
+				logger.warn("Provider ${provider.name} failed after retries, trying next: ${e.message}")
 			}
 		}
 
@@ -67,9 +73,11 @@ class LlmOrchestrator(private val config: LlmConfig) {
 			return providers.first().completeStream(messages, "", onChunk)
 		}
 
-		for (provider in providers) {
+ 	for (provider in providers) {
 			if (!provider.isAvailable) continue
 			try {
+				// No retry for streaming — partial output may have already been sent to the client.
+				// Failover to the next provider is still supported.
 				return provider.completeStream(messages, "", onChunk)
 			} catch (e: Exception) {
 				logger.warn("Provider ${provider.name} failed streaming, trying next: ${e.message}")

@@ -50,6 +50,9 @@ class ChannelRouter(
 
 	fun getChannelCount(): Int = channels.size
 
+	fun getChannelStatuses(): Map<String, Boolean> =
+		channels.values.associate { it.displayName to it.connected }
+
 	suspend fun startAll() {
 		channels.values.forEach { channel ->
 			try {

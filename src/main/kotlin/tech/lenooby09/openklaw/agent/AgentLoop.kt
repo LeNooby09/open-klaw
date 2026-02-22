@@ -71,6 +71,7 @@ class AgentLoop(
 	private val logger = LoggerFactory.getLogger(AgentLoop::class.java)
 	private val conversations = ConcurrentHashMap<String, ConversationSession>()
 	private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
+	val laneQueue = LaneQueue()
 
 	init {
 		conversationsDir.mkdirs()
@@ -113,94 +114,117 @@ class AgentLoop(
 	suspend fun chat(username: String, request: ChatRequest, allowedTools: Set<String>? = null): ChatResponse {
 		val session = resolveSession(username, request.sessionId)
 
-		val userMessage = ChatMessage(role = "user", content = request.message)
-		session.messages.add(userMessage)
-		session.lastActiveAt = System.currentTimeMillis()
-		memoryManager?.logMessage(session.id, username, userMessage)
+		return laneQueue.withLane(session.id) {
+			val userMessage = ChatMessage(role = "user", content = request.message)
+			session.messages.add(userMessage)
+			session.lastActiveAt = System.currentTimeMillis()
+			memoryManager?.logMessage(session.id, username, userMessage)
 
-		logger.info("Agent thinking for user=$username session=${session.id}")
+			logger.info("Agent thinking for user=$username session=${session.id}")
 
-		val assistantMessage = runAgentLoop(session, allowedTools)
-		memoryManager?.logMessage(session.id, username, assistantMessage)
+			val assistantMessage = runAgentLoop(session, allowedTools)
+			memoryManager?.logMessage(session.id, username, assistantMessage)
 
-		return ChatResponse(
-			sessionId = session.id,
-			message = assistantMessage
-		)
+			ChatResponse(
+				sessionId = session.id,
+				message = assistantMessage
+			)
+		}
 	}
 
 	suspend fun chatStream(
 		username: String,
 		request: ChatRequest,
-		onChunk: suspend (String) -> Unit
+		onChunk: suspend (String) -> Unit,
+		allowedTools: Set<String>? = null
 	): ChatResponse {
 		val session = resolveSession(username, request.sessionId)
 
-		val userMessage = ChatMessage(role = "user", content = request.message)
-		session.messages.add(userMessage)
-		session.lastActiveAt = System.currentTimeMillis()
-		memoryManager?.logMessage(session.id, username, userMessage)
+ 	return laneQueue.withLane(session.id) {
+ 			val userMessage = ChatMessage(role = "user", content = request.message)
+ 			session.messages.add(userMessage)
+ 			session.lastActiveAt = System.currentTimeMillis()
+ 			memoryManager?.logMessage(session.id, username, userMessage)
 
-		logger.info("Agent streaming for user=$username session=${session.id}")
+ 			logger.info("Agent streaming for user=$username session=${session.id}")
 
-		val llmMessages = buildLlmMessages(session, request.message)
-		val llmResponse = orchestrator.completeStream(llmMessages, onChunk)
+ 			val llmMessages = buildLlmMessages(session, request.message, allowedTools)
+ 			val llmResponse = orchestrator.completeStream(llmMessages, onChunk)
 
-		var content = llmResponse.content
-		var model = llmResponse.model
-		var provider = llmResponse.provider
+ 			var content = llmResponse.content
+ 			var model = llmResponse.model
+ 			var provider = llmResponse.provider
 
-		// Handle tool calls in streaming mode (execute tools after initial stream completes)
-		if (toolRegistry != null) {
-			var iteration = 0
-			while (iteration < MAX_TOOL_ITERATIONS) {
-				val toolCall = parseToolCall(content) ?: break
-				iteration++
+ 			// Handle tool calls in streaming mode (execute tools after initial stream completes)
+ 			if (toolRegistry != null) {
+ 				var iteration = 0
+ 				while (iteration < MAX_TOOL_ITERATIONS) {
+  				val toolCall = parseToolCall(content) ?: break
+  				iteration++
 
-				val result = toolRegistry.execute(toolCall)
-				val toolMessage = ChatMessage(
-					role = "assistant",
-					content = content,
-					model = model,
-					provider = provider,
-					toolCall = ToolCallInfo(toolCall.toolName, toolCall.arguments, result)
-				)
-				session.messages.add(toolMessage)
+  				// Enforce tool restrictions if allowedTools is specified
+  				if (allowedTools != null && toolCall.toolName !in allowedTools) {
+  					logger.warn("Tool '${toolCall.toolName}' blocked by tool restrictions in streaming mode")
+  					val blockedResult = ChatMessage(
+  						role = "tool",
+  						content = "Tool '${toolCall.toolName}' is not permitted in this context. Allowed tools: ${allowedTools.joinToString(", ")}"
+  					)
+  					session.messages.add(ChatMessage(role = "assistant", content = content, model = model, provider = provider))
+  					session.messages.add(blockedResult)
+  					onChunk("\n\n🔧 **Tool: ${toolCall.toolName}** → ⛔ Blocked by permissions\n")
+  					val followUpMessages = buildLlmMessages(session, allowedTools = allowedTools)
+  					val followUp = orchestrator.completeStream(followUpMessages, onChunk)
+  					content = followUp.content
+  					model = followUp.model
+  					provider = followUp.provider
+  					continue
+  				}
 
-				val toolResultMessage = ChatMessage(role = "tool", content = formatToolResult(result))
-				session.messages.add(toolResultMessage)
+  				val result = toolRegistry.execute(toolCall)
+ 					val toolMessage = ChatMessage(
+ 						role = "assistant",
+ 						content = content,
+ 						model = model,
+ 						provider = provider,
+ 						toolCall = ToolCallInfo(toolCall.toolName, toolCall.arguments, result)
+ 					)
+ 					session.messages.add(toolMessage)
 
-				onChunk("\n\n🔧 **Tool: ${toolCall.toolName}** → ${if (result.success) "✅" else "❌"}\n")
-				if (result.output.isNotEmpty()) {
-					onChunk("```\n${result.output.take(2000)}\n```\n")
-				}
-				if (result.error != null) {
-					onChunk("Error: ${result.error}\n")
-				}
+ 					val toolResultMessage = ChatMessage(role = "tool", content = formatToolResult(result))
+ 					session.messages.add(toolResultMessage)
 
-				val followUpMessages = buildLlmMessages(session)
-				val followUp = orchestrator.completeStream(followUpMessages, onChunk)
-				content = followUp.content
-				model = followUp.model
-				provider = followUp.provider
-			}
-		}
+ 					onChunk("\n\n🔧 **Tool: ${toolCall.toolName}** → ${if (result.success) "✅" else "❌"}\n")
+ 					if (result.output.isNotEmpty()) {
+ 						onChunk("```\n${result.output.take(2000)}\n```\n")
+ 					}
+ 					if (result.error != null) {
+ 						onChunk("Error: ${result.error}\n")
+ 					}
 
-		val assistantMessage = ChatMessage(
-			role = "assistant",
-			content = content,
-			model = model,
-			provider = provider
-		)
-		session.messages.add(assistantMessage)
-		session.lastActiveAt = System.currentTimeMillis()
-		memoryManager?.logMessage(session.id, username, assistantMessage)
+ 					val followUpMessages = buildLlmMessages(session, allowedTools = allowedTools)
+ 					val followUp = orchestrator.completeStream(followUpMessages, onChunk)
+ 					content = followUp.content
+ 					model = followUp.model
+ 					provider = followUp.provider
+ 				}
+ 			}
 
-		return ChatResponse(
-			sessionId = session.id,
-			message = assistantMessage
-		)
-	}
+ 			val assistantMessage = ChatMessage(
+ 				role = "assistant",
+ 				content = content,
+ 				model = model,
+ 				provider = provider
+ 			)
+ 			session.messages.add(assistantMessage)
+ 			session.lastActiveAt = System.currentTimeMillis()
+ 			memoryManager?.logMessage(session.id, username, assistantMessage)
+
+ 			ChatResponse(
+ 				sessionId = session.id,
+ 				message = assistantMessage
+ 			)
+ 		}
+ 	}
 
 	fun getConversation(sessionId: String): ConversationSession? = conversations[sessionId]
 
@@ -220,8 +244,9 @@ class AgentLoop(
 	fun deleteConversation(sessionId: String, requestingUsername: String, isAdmin: Boolean): Boolean {
 		val conversation = conversations[sessionId]
 		if (conversation != null) {
-			if (!isAdmin && conversation.username != requestingUsername) return false
+ 		if (!isAdmin && conversation.username != requestingUsername) return false
 			conversations.remove(sessionId)
+			laneQueue.removeLane(sessionId)
 			return true
 		}
 		// Check if it exists on disk — validate format before using in file path
@@ -273,7 +298,8 @@ class AgentLoop(
 						writer.newLine()
 					}
 				}
-				conversations.remove(entry.key)
+ 			conversations.remove(entry.key)
+				laneQueue.removeLane(entry.key)
 				logger.info("Flushed idle conversation ${session.id} (user=${session.username}, messages=${session.messages.size}) to disk")
 			} catch (e: Exception) {
 				logger.error("Failed to flush conversation ${entry.key} to disk: ${e.message}", e)

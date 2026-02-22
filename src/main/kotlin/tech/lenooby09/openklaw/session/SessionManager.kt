@@ -80,6 +80,9 @@ data class UnlinkAccountRequest(val channelType: String, val channelUserId: Stri
 @Serializable
 data class ChannelLinkInfo(val channelType: String, val channelUserId: String, val linkedAt: Long)
 
+@Serializable
+data class SetPermissionsRequest(val allowedTools: List<String>)
+
 class SessionManager(
 	private val authConfig: AuthConfig = AuthConfig(),
 	private val securityConfig: SecurityConfig = SecurityConfig()

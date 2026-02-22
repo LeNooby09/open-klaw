@@ -53,6 +53,14 @@ interface Tool {
 	/** Whether the tool is currently enabled and operational. */
 	val enabled: Boolean
 
+	/**
+	 * Whether this tool is idempotent (safe to retry on failure).
+	 * Non-idempotent tools (e.g. shell, filesystem writes) will not be retried
+	 * because re-execution after partial completion could cause unintended side effects.
+	 * Defaults to false (conservative — no retry unless explicitly marked safe).
+	 */
+	val idempotent: Boolean get() = false
+
 	/** Execute the tool with the given arguments and return a result. */
 	suspend fun execute(arguments: Map<String, String>): ToolResult
 }

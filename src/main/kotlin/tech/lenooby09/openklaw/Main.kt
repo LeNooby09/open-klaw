@@ -6,7 +6,11 @@ import tech.lenooby09.openklaw.agent.ChatRequest
 import kotlinx.coroutines.runBlocking
 import tech.lenooby09.openklaw.config.*
 import tech.lenooby09.openklaw.gateway.GatewayServer
+import tech.lenooby09.openklaw.health.BuiltInHealthChecks
+import tech.lenooby09.openklaw.health.HealthCheckManager
+import tech.lenooby09.openklaw.security.UserPermissionManager
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
+import tech.lenooby09.openklaw.observability.UsageTracker
 import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.messaging.*
 import tech.lenooby09.openklaw.scheduler.*
@@ -214,7 +218,34 @@ fun main(args: Array<String>) {
 
 	logger.info("Phase 5 automation initialized — heartbeat=${schedulerConfig.heartbeatEnabled}, cron=${schedulerConfig.cronEnabled}, webhooks=${schedulerConfig.webhookTriggersEnabled}, git=${schedulerConfig.gitMonitorEnabled}")
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter, webhookTriggerManager, skillManager, skillRegistryClient)
+	val userPermissionManager = UserPermissionManager()
+
+	// Initialize Phase 7: Health Checks & Doctor Diagnostics
+	val healthCheckManager = HealthCheckManager()
+	healthCheckManager.register(BuiltInHealthChecks.LlmHealthCheck(
+		providerCount = { orchestrator.getProviderCount() },
+		healthCheck = { orchestrator.healthCheck() }
+	))
+	healthCheckManager.register(BuiltInHealthChecks.ToolRegistryHealthCheck(
+		toolCount = { toolRegistry.getToolCount() },
+		enabledCount = { toolRegistry.listEnabled().size }
+	))
+	healthCheckManager.register(BuiltInHealthChecks.MemoryHealthCheck(
+		dataDir = config.memory.dataDir,
+		soulFileExists = { java.io.File(config.memory.dataDir, "SOUL.md").exists() },
+		memoryFileExists = { java.io.File(config.memory.dataDir, "MEMORY.md").exists() }
+	))
+	healthCheckManager.register(BuiltInHealthChecks.ChannelHealthCheck(
+		channelCount = { channelRouter.getChannelCount() },
+		channelStatuses = { channelRouter.getChannelStatuses() }
+	))
+	healthCheckManager.register(BuiltInHealthChecks.SystemResourceHealthCheck())
+	logger.info("Health check manager initialized with ${healthCheckManager.getCheckCount()} checks")
+
+	val usageTracker = UsageTracker()
+	logger.info("Phase 7 initialized — lane queues, user permissions, retry policies, health checks, usage tracking")
+
+	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter, webhookTriggerManager, skillManager, skillRegistryClient, userPermissionManager, healthCheckManager, usageTracker)
 
 	// Register periodic cleanup callbacks
 	sessionManager.onCleanup { gateway.cleanupRateLimiter() }
