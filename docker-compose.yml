@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   open-klaw:
     build: .
@@ -25,12 +23,9 @@ services:
     # Prevent privilege escalation
     security_opt:
       - no-new-privileges:true
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "2.0"
+    # Resource limits (enforced in standalone docker compose)
+    mem_limit: 2g
+    cpus: 2.0
     restart: unless-stopped
 
 volumes:

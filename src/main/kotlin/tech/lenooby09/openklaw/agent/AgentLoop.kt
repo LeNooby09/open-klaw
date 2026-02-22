@@ -6,6 +6,7 @@ import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.llm.LlmMessage
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
+import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.tools.ToolResult
@@ -62,6 +63,7 @@ data class ConversationListItem(
 class AgentLoop(
 	private val orchestrator: LlmOrchestrator,
 	private val toolRegistry: ToolRegistry? = null,
+	private val memoryManager: MemoryManager? = null,
 	private val conversationsDir: File = File("data/conversations")
 ) {
 	private val logger = LoggerFactory.getLogger(AgentLoop::class.java)
@@ -75,19 +77,26 @@ class AgentLoop(
 	companion object {
 		const val MAX_TOOL_ITERATIONS = 5
 		private val TOOL_BLOCK_REGEX = Regex("```tool\\s*\\n(\\{[\\s\\S]*?})\\s*\\n```")
+		private val SAFE_UUID_REGEX = Regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+
+		fun isValidSessionId(id: String): Boolean = SAFE_UUID_REGEX.matches(id)
 	}
 
-	private val systemPrompt: String
-		get() {
-			val base = """
-				You are Open-Klaw, an AI assistant running as a local agent. You are helpful, concise, and 
-				thoughtful. You can assist with coding, analysis, writing, and general questions.
-				When you don't know something, say so honestly.
-			""".trimIndent()
+	private fun buildSystemPrompt(username: String, userQuery: String = ""): String {
+		val base = """
+			You are Open-Klaw, an AI assistant running as a local agent. You are helpful, concise, and 
+			thoughtful. You can assist with coding, analysis, writing, and general questions.
+			When you don't know something, say so honestly.
+		""".trimIndent()
 
-			val toolSection = toolRegistry?.buildToolDescriptions() ?: ""
-			return base + toolSection
-		}
+		val toolSection = toolRegistry?.buildToolDescriptions() ?: ""
+		val memoryContext = memoryManager?.buildMemoryContext(username) ?: ""
+		val relevantMemory = if (userQuery.isNotEmpty()) {
+			memoryManager?.searchRelevantMemory(userQuery) ?: ""
+		} else ""
+
+		return base + toolSection + memoryContext + relevantMemory
+	}
 
 	suspend fun chat(username: String, request: ChatRequest): ChatResponse {
 		val session = resolveSession(username, request.sessionId)
@@ -95,10 +104,12 @@ class AgentLoop(
 		val userMessage = ChatMessage(role = "user", content = request.message)
 		session.messages.add(userMessage)
 		session.lastActiveAt = System.currentTimeMillis()
+		memoryManager?.logMessage(session.id, username, userMessage)
 
 		logger.info("Agent thinking for user=$username session=${session.id}")
 
 		val assistantMessage = runAgentLoop(session)
+		memoryManager?.logMessage(session.id, username, assistantMessage)
 
 		return ChatResponse(
 			sessionId = session.id,
@@ -116,10 +127,11 @@ class AgentLoop(
 		val userMessage = ChatMessage(role = "user", content = request.message)
 		session.messages.add(userMessage)
 		session.lastActiveAt = System.currentTimeMillis()
+		memoryManager?.logMessage(session.id, username, userMessage)
 
 		logger.info("Agent streaming for user=$username session=${session.id}")
 
-		val llmMessages = buildLlmMessages(session)
+		val llmMessages = buildLlmMessages(session, request.message)
 		val llmResponse = orchestrator.completeStream(llmMessages, onChunk)
 
 		var content = llmResponse.content
@@ -170,6 +182,7 @@ class AgentLoop(
 		)
 		session.messages.add(assistantMessage)
 		session.lastActiveAt = System.currentTimeMillis()
+		memoryManager?.logMessage(session.id, username, assistantMessage)
 
 		return ChatResponse(
 			sessionId = session.id,
@@ -199,7 +212,8 @@ class AgentLoop(
 			conversations.remove(sessionId)
 			return true
 		}
-		// Check if it exists on disk
+		// Check if it exists on disk — validate format before using in file path
+		if (!isValidSessionId(sessionId)) return false
 		val file = File(conversationsDir, "$sessionId.jsonl")
 		if (file.exists()) {
 			if (!isAdmin) {
@@ -222,6 +236,11 @@ class AgentLoop(
 		for (entry in toFlush) {
 			try {
 				val session = entry.value
+				memoryManager?.distillConversation(session.id, session.username, session.messages)
+				if (!isValidSessionId(session.id)) {
+					logger.warn("Skipping flush for conversation with invalid ID: ${session.id}")
+					continue
+				}
 				val file = File(conversationsDir, "${session.id}.jsonl")
 				file.bufferedWriter().use { writer ->
 					// First line: session metadata
@@ -373,8 +392,9 @@ class AgentLoop(
 		return session
 	}
 
-	private fun buildLlmMessages(session: ConversationSession): List<LlmMessage> {
-		val messages = mutableListOf(LlmMessage("system", systemPrompt))
+	private fun buildLlmMessages(session: ConversationSession, userQuery: String = ""): List<LlmMessage> {
+		val prompt = buildSystemPrompt(session.username, userQuery)
+		val messages = mutableListOf(LlmMessage("system", prompt))
 		val history = session.messages.takeLast(50)
 		history.forEach {
 			val role = if (it.role == "tool") "user" else it.role

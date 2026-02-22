@@ -83,6 +83,11 @@ else
 		exit 1
 	fi
 
+	if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+		echo "Error: docker-compose.yml not found in $SCRIPT_DIR"
+		exit 1
+	fi
+
 	if [ "$FORCE_BUILD" = true ]; then
 		echo "Building Docker image..."
 		docker compose build

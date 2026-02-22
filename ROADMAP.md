@@ -15,7 +15,7 @@ The foundation: a running agent that can receive a message, think, act, and resp
 - [x] **Model Failover** — Automatic priority-based fallback to secondary models when the primary is unavailable.
 - [x] **Streaming / Chunked Responses** — Stream partial responses back to the user in real time via the agent loop.
 - [x] **Session Management** — BCrypt password auth, 256-bit token generation, 24h session expiry in ConcurrentHashMap.
-- [x] **Security Hardening** — One-time signup token for first admin registration (no hardcoded credentials), localhost-only CORS with credentials support, login rate limiting with exponential backoff (atomic/thread-safe), two-cookie CSRF protection (HttpOnly session cookie + readable CSRF cookie for double-submit pattern via `X-CSRF-Token` header), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), HTTPS enforcement for non-localhost binds, bounded request body reading (hard byte limit regardless of Content-Length header) with configurable max payload size, username format validation (`^[a-zA-Z0-9_-]{3,32}$`), conversation session ownership verification with authorization checks on delete, periodic expired session cleanup with pluggable cleanup callbacks (rate limiter + idle conversation flushing), idle conversation archival to JSONL on disk, API keys loaded from environment variables (`apiKeyEnv`), user management APIs (create/delete users, change password, list users), and DOM XSS prevention via `addEventListener` (no inline event handlers).
+- [x] **Security Hardening** — One-time signup token for first admin registration (no hardcoded credentials), localhost-only CORS with credentials support, login rate limiting with exponential backoff (atomic/thread-safe), two-cookie CSRF protection (HttpOnly session cookie + readable CSRF cookie for double-submit pattern via `X-CSRF-Token` header), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), HTTPS enforcement for non-localhost binds, bounded request body reading (hard byte limit regardless of Content-Length header) with configurable max payload size, username format validation (`^[a-zA-Z0-9_-]{3,32}$`), conversation session ownership verification with authorization checks on delete, periodic expired session cleanup with pluggable cleanup callbacks (rate limiter + idle conversation flushing), idle conversation archival to JSONL on disk, API keys loaded from environment variables (`apiKeyEnv`), user management APIs (create/delete users, change password, list users), DOM XSS prevention via `addEventListener` (no inline event handlers), path traversal protection via canonicalization in memory files and UUID validation for session/conversation IDs, prompt injection mitigation with structured DATA-ONLY boundary markers in system prompts, sensitive data redaction (API keys, tokens, private keys) in conversation logs, restrictive POSIX file permissions (owner-only read/write) on all memory and log files, per-user configurable storage budgets with admin dashboard, capped semantic search index (configurable max documents), and dual-layer sandbox detection (env var + container indicators).
 
 ---
 
@@ -35,12 +35,12 @@ Give the agent hands: the ability to interact with the real world.
 
 Let the agent remember across sessions and grow smarter over time.
 
-- [ ] **Conversation Logging (JSONL)** — Store raw interaction transcripts for every session.
-- [ ] **Curated Long-Term Memory (`MEMORY.md`)** — Distill key facts into a human-readable, editable Markdown file.
-- [ ] **Identity & Personality (`SOUL.md`)** — Define the agent's persona, tone, and behavioral guidelines.
-- [ ] **User Profile (`USER.md`)** — Store user preferences, coding style, and personal context.
-- [ ] **Semantic Memory Search** — Vector-based retrieval of relevant past conversations per turn.
-- [ ] **Three-Tier Memory Architecture** — Daily logs → curated memory → deep semantic search.
+- [x] **Conversation Logging (JSONL)** — Real-time append-only JSONL logging of every message per session, organized in daily directories (`data/logs/{date}/{sessionId}.jsonl`). Supports reading individual sessions, daily aggregates, and full log enumeration.
+- [x] **Curated Long-Term Memory (`MEMORY.md`)** — Distill key facts into a human-readable, editable Markdown file. Automatic topic extraction and distillation from conversations exceeding a configurable message threshold. Max file size enforcement prevents unbounded growth.
+- [x] **Identity & Personality (`SOUL.md`)** — Define the agent's persona, tone, and behavioral guidelines. Ships with sensible defaults; auto-created on first run. Injected into every system prompt.
+- [x] **User Profile (`USER.md`)** — Per-user `USER_{username}.md` files store preferences, coding style, and personal context. Automatically included in system prompts when present.
+- [x] **Semantic Memory Search** — TF-IDF vector-based retrieval of relevant past conversations per turn. In-memory index with automatic periodic reindexing (5-minute interval). Configurable result count and minimum relevance score.
+- [x] **Three-Tier Memory Architecture** — Tier 1: Daily JSONL logs (raw transcripts). Tier 2: Curated Markdown files (SOUL.md, MEMORY.md, USER.md). Tier 3: Semantic search over all historical logs. All tiers integrated into the agent's system prompt via `MemoryManager`.
 
 ---
 
@@ -101,7 +101,7 @@ Production-grade reliability and safety guardrails.
 
 Run everywhere: desktop, mobile, containers.
 
-- [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (build + minimal JRE runtime), non-root user, dropped capabilities, `no-new-privileges`, resource limits (2GB RAM, 2 CPUs), persistent volumes for workspace and data. Launch script (`run.sh`) defaults to Docker, with `--bare-metal` escape hatch.
+- [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (build + minimal JRE runtime) with pinned image tags (`eclipse-temurin:21.0.6_7`), non-root user, dropped capabilities, `no-new-privileges`, enforced resource limits via `mem_limit`/`cpus` (2GB RAM, 2 CPUs), persistent volumes for workspace and data. Launch script (`run.sh`) defaults to Docker with compose file validation, with `--bare-metal` escape hatch.
 - [ ] **Tailscale / SSH Tunnels** — Secure remote access without exposing the gateway to the public internet.
 - [ ] **Desktop App (macOS/Linux/Windows)** — System tray/menu bar control, voice wake, push-to-talk.
 - [ ] **Mobile Nodes (iOS/Android)** — Pair mobile devices as agent nodes with voice trigger and canvas support.

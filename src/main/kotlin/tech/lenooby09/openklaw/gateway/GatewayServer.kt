@@ -17,6 +17,7 @@ import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
 import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
+import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.security.RateLimiter
 import tech.lenooby09.openklaw.session.*
 import tech.lenooby09.openklaw.tools.CanvasTool
@@ -31,7 +32,8 @@ class GatewayServer(
 	private val agentLoop: AgentLoop,
 	private val startTime: Long,
 	private val toolRegistry: ToolRegistry? = null,
-	private val canvasTool: CanvasTool? = null
+	private val canvasTool: CanvasTool? = null,
+	private val memoryManager: MemoryManager? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -77,6 +79,7 @@ class GatewayServer(
 				authRoutes()
 				apiRoutes()
 				userManagementRoutes()
+				storageBudgetRoutes()
 				toolRoutes()
 			}
 		}.start(wait = false)
@@ -303,6 +306,55 @@ class GatewayServer(
 			} else {
 				call.respond(HttpStatusCode.Unauthorized, ErrorResponse("Current password is incorrect."))
 			}
+		}
+	}
+
+	private fun Routing.storageBudgetRoutes() {
+		get("/api/storage-budgets") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			val memFiles = memoryManager?.memoryFiles
+			if (memFiles == null) {
+				call.respond(emptyList<StorageBudgetInfo>())
+				return@get
+			}
+			val users = sessionManager.listUsers()
+			val budgets = users.map { user ->
+				StorageBudgetInfo(
+					username = user.username,
+					budgetBytes = memFiles.getUserStorageBudget(user.username),
+					usedBytes = memFiles.getUserProfileSize(user.username)
+				)
+			}
+			call.respond(budgets)
+		}
+
+		put("/api/storage-budgets") {
+			val session = call.requireAuth() ?: return@put
+			if (!call.verifyCsrf(session)) return@put
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@put
+			}
+			val memFiles = memoryManager?.memoryFiles
+			if (memFiles == null) {
+				call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponse("Memory system is not enabled."))
+				return@put
+			}
+			val req = call.receiveBounded<StorageBudgetRequest>() ?: return@put
+			if (req.budgetBytes < 0) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Budget must be non-negative."))
+				return@put
+			}
+			if (!isValidUsername(req.username)) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid username format."))
+				return@put
+			}
+			memFiles.setUserStorageBudget(req.username, req.budgetBytes)
+			call.respond(MessageResponse("Storage budget for '${req.username}' set to ${req.budgetBytes} bytes."))
 		}
 	}
 

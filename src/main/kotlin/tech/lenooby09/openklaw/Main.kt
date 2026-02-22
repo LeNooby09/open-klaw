@@ -9,6 +9,7 @@ import tech.lenooby09.openklaw.config.SecurityConfig
 import tech.lenooby09.openklaw.config.ToolsConfig
 import tech.lenooby09.openklaw.gateway.GatewayServer
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
+import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.session.SessionManager
 import tech.lenooby09.openklaw.tools.*
 
@@ -19,8 +20,16 @@ fun main(args: Array<String>) {
 	logger.info("Starting Open-Klaw...")
 
 	// Sandbox detection: require either Docker container or explicit bare-metal opt-in
-	val isSandboxed = System.getenv("OPENKLAW_SANDBOXED")?.toBoolean() == true
+	// Check both the env var AND actual container indicators for defense-in-depth
+	val envClaimsSandboxed = System.getenv("OPENKLAW_SANDBOXED")?.toBoolean() == true
+	val hasContainerIndicators = java.io.File("/.dockerenv").exists() ||
+		(java.io.File("/proc/1/cgroup").let { it.exists() && it.readText().contains("docker|containerd|lxc|kubepods".toRegex()) })
+	val isSandboxed = envClaimsSandboxed && hasContainerIndicators
 	val isBareMetal = System.getenv("OPENKLAW_BARE_METAL")?.toBoolean() == true || args.contains("--bare-metal")
+
+	if (envClaimsSandboxed && !hasContainerIndicators) {
+		logger.warn("OPENKLAW_SANDBOXED=true is set but no container indicators found. Treating as bare-metal.")
+	}
 
 	if (!isSandboxed && !isBareMetal) {
 		logger.error("╔══════════════════════════════════════════════════════════════╗")
@@ -89,9 +98,14 @@ fun main(args: Array<String>) {
 
 	logger.info("Tool execution engine initialized — ${toolRegistry.getToolCount()} tools registered")
 
-	val agentLoop = AgentLoop(orchestrator, toolRegistry)
+	// Initialize Memory System
+	val memoryManager = MemoryManager(config.memory)
+	memoryManager.initialize()
+	logger.info("Persistent memory system initialized (dataDir=${config.memory.dataDir})")
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool)
+	val agentLoop = AgentLoop(orchestrator, toolRegistry, memoryManager)
+
+	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager)
 
 	// Register periodic cleanup callbacks
 	sessionManager.onCleanup { gateway.cleanupRateLimiter() }

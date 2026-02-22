@@ -8,7 +8,8 @@ data class AppConfig(
 	val llm: LlmConfig = LlmConfig(),
 	val auth: AuthConfig = AuthConfig(),
 	val security: SecurityConfig = SecurityConfig(),
-	val tools: ToolsConfig = ToolsConfig()
+	val tools: ToolsConfig = ToolsConfig(),
+	val memory: MemoryConfig = MemoryConfig()
 )
 
 @Serializable
@@ -72,4 +73,22 @@ data class ToolsConfig(
 	val fileSystemMaxFileSizeBytes: Long = 10 * 1024 * 1024,
 	val browserHeadless: Boolean = true,
 	val browserTimeoutSeconds: Long = 30
+)
+
+@Serializable
+data class MemoryConfig(
+	val enabled: Boolean = true,
+	val dataDir: String = "data",
+	val conversationLoggingEnabled: Boolean = true,
+	val soulFile: String = "SOUL.md",
+	val memoryFile: String = "MEMORY.md",
+	val userFilePattern: String = "USER_{username}.md",
+	val semanticSearchEnabled: Boolean = true,
+	val semanticSearchMaxResults: Int = 5,
+	val semanticSearchMinScore: Double = 0.1,
+	val semanticSearchMaxDocuments: Int = 10_000,
+	val memoryDistillationEnabled: Boolean = true,
+	val memoryDistillationThresholdMessages: Int = 20,
+	val maxMemoryFileSize: Long = 512 * 1024,
+	val defaultUserStorageBudget: Long = 256 * 1024
 )

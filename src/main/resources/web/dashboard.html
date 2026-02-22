@@ -341,6 +341,7 @@
             <button class="active" onclick="switchTab('chat')">Chat</button>
             <button onclick="switchTab('conversations')">Conversations</button>
             <button onclick="switchTab('users')">Users</button>
+            <button onclick="switchTab('storage')">Storage Budgets</button>
         </div>
     </div>
 
@@ -396,6 +397,25 @@
                 </tr>
                 </thead>
                 <tbody id="usersTable"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="panel-storage" class="panel">
+        <div class="section">
+            <h2>Storage Budgets</h2>
+            <p style="color:#888;font-size:.85rem;margin-bottom:1rem">Configure per-user profile storage limits. Click a budget value to edit it.</p>
+            <table>
+                <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Budget</th>
+                    <th>Used</th>
+                    <th>Usage</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="storageBudgetTable"></tbody>
             </table>
         </div>
     </div>
@@ -566,6 +586,7 @@
         event.target.classList.add('active');
         if (name === 'conversations') loadConversations();
         if (name === 'users') loadUsers();
+        if (name === 'storage') loadStorageBudgets();
     }
 
     async function sendMessage() {
@@ -704,6 +725,70 @@
         if (r.ok) {
             toast('User deleted.');
             loadUsers();
+        } else {
+            const e = await r.json();
+            toast(e.error || 'Failed.', 'error');
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    async function loadStorageBudgets() {
+        const r = await api('GET', '/api/storage-budgets');
+        if (!r.ok) return;
+        const list = await r.json();
+        const tb = document.getElementById('storageBudgetTable');
+        if (!list.length) {
+            tb.innerHTML = '<tr><td colspan="5" style="color:#888">No users.</td></tr>';
+            return;
+        }
+        tb.innerHTML = '';
+        list.forEach(b => {
+            const pct = b.budgetBytes > 0 ? Math.min(100, Math.round(b.usedBytes / b.budgetBytes * 100)) : 0;
+            const barColor = pct > 90 ? '#e74c3c' : pct > 70 ? '#f39c12' : '#27ae60';
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td><strong>' + esc(b.username) + '</strong></td>' +
+                '<td>' + formatBytes(b.budgetBytes) + '</td>' +
+                '<td>' + formatBytes(b.usedBytes) + '</td>' +
+                '<td><div style="background:#333;border-radius:4px;height:18px;width:120px;position:relative">' +
+                '<div style="background:' + barColor + ';height:100%;width:' + pct + '%;border-radius:4px"></div>' +
+                '<span style="position:absolute;top:0;left:4px;font-size:.7rem;line-height:18px;color:#fff">' + pct + '%</span>' +
+                '</div></td>' +
+                '<td></td>';
+            const btn = document.createElement('button');
+            btn.textContent = 'Edit Budget';
+            btn.addEventListener('click', () => showEditBudget(b.username, b.budgetBytes));
+            tr.lastElementChild.appendChild(btn);
+            tb.appendChild(tr);
+        });
+    }
+
+    function showEditBudget(user, currentBytes) {
+        const currentKB = Math.round(currentBytes / 1024);
+        document.getElementById('modalContent').innerHTML =
+            '<h3>Edit Storage Budget — ' + esc(user) + '</h3>' +
+            '<label style="color:#888;font-size:.85rem">Budget (KB)</label>' +
+            '<input id="budgetInput" type="number" min="0" value="' + currentKB + '">' +
+            '<p style="color:#666;font-size:.8rem;margin-top:.5rem">Current: ' + formatBytes(currentBytes) + '</p>' +
+            '<div class="actions"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="saveBudget(\'' + escAttr(user) + '\')" >Save</button></div>';
+        document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    async function saveBudget(user) {
+        const kb = parseInt(document.getElementById('budgetInput').value);
+        if (isNaN(kb) || kb < 0) { toast('Budget must be a non-negative number.', 'error'); return; }
+        const r = await api('PUT', '/api/storage-budgets', {username: user, budgetBytes: kb * 1024});
+        if (r.ok) {
+            toast('Budget updated for ' + user + '.');
+            closeModal();
+            loadStorageBudgets();
         } else {
             const e = await r.json();
             toast(e.error || 'Failed.', 'error');

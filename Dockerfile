@@ -2,7 +2,7 @@
 # Open-Klaw — Sandboxed Docker Build
 # ─────────────────────────────────────────────────────────
 # Stage 1: Build the application
-FROM eclipse-temurin:21-jdk AS builder
+FROM eclipse-temurin:21.0.6_7-jdk-noble AS builder
 
 WORKDIR /build
 COPY gradlew gradlew.bat settings.gradle.kts build.gradle.kts gradle.properties ./
@@ -15,7 +15,7 @@ RUN ./gradlew installDist --no-daemon
 
 # ─────────────────────────────────────────────────────────
 # Stage 2: Minimal runtime image with sandbox restrictions
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21.0.6_7-jre-noble
 
 # Install minimal tools the shell/filesystem tools may need
 RUN apt-get update && apt-get install -y --no-install-recommends \

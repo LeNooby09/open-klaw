@@ -65,6 +65,12 @@ data class DeleteUserRequest(val username: String)
 @Serializable
 data class UserInfo(val username: String, val isAdmin: Boolean, val createdAt: Long)
 
+@Serializable
+data class StorageBudgetRequest(val username: String, val budgetBytes: Long)
+
+@Serializable
+data class StorageBudgetInfo(val username: String, val budgetBytes: Long, val usedBytes: Long)
+
 class SessionManager(
 	private val authConfig: AuthConfig = AuthConfig(),
 	private val securityConfig: SecurityConfig = SecurityConfig()
