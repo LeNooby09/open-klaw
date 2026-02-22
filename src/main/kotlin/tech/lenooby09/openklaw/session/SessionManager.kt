@@ -71,6 +71,15 @@ data class StorageBudgetRequest(val username: String, val budgetBytes: Long)
 @Serializable
 data class StorageBudgetInfo(val username: String, val budgetBytes: Long, val usedBytes: Long)
 
+@Serializable
+data class LinkAccountRequest(val channelType: String, val channelUserId: String)
+
+@Serializable
+data class UnlinkAccountRequest(val channelType: String, val channelUserId: String)
+
+@Serializable
+data class ChannelLinkInfo(val channelType: String, val channelUserId: String, val linkedAt: Long)
+
 class SessionManager(
 	private val authConfig: AuthConfig = AuthConfig(),
 	private val securityConfig: SecurityConfig = SecurityConfig()
@@ -80,6 +89,19 @@ class SessionManager(
 	private val users = ConcurrentHashMap<String, UserAccount>()
 	private var cleanupTimer: Timer? = null
 	private val cleanupCallbacks = mutableListOf<() -> Unit>()
+
+	/**
+	 * Account linking: maps "channelType:channelUserId" → registered username.
+	 * Allows messaging channel users to be resolved to authenticated Open-Klaw accounts.
+	 */
+	private val channelLinks = ConcurrentHashMap<String, ChannelLinkEntry>()
+
+	private data class ChannelLinkEntry(
+		val username: String,
+		val channelType: String,
+		val channelUserId: String,
+		val linkedAt: Long = System.currentTimeMillis()
+	)
 
 	@Volatile
 	var signupToken: String? = null
@@ -195,6 +217,59 @@ class SessionManager(
 	}
 
 	fun listUsers(): List<UserInfo> = users.values.map { UserInfo(it.username, it.isAdmin, it.createdAt) }
+
+	// --- Account Linking for Messaging Channels ---
+
+	/**
+	 * Links a messaging channel identity to a registered user.
+	 * Returns true if linked successfully, false if user doesn't exist or link already exists for another user.
+	 */
+	fun linkChannelAccount(username: String, channelType: String, channelUserId: String): Boolean {
+		if (!users.containsKey(username)) return false
+		val key = "$channelType:$channelUserId"
+		val existing = channelLinks[key]
+		if (existing != null && existing.username != username) return false
+		channelLinks[key] = ChannelLinkEntry(username, channelType, channelUserId)
+		logger.info("Channel account linked: $channelType:$channelUserId → $username")
+		return true
+	}
+
+	/**
+	 * Unlinks a messaging channel identity from a user.
+	 */
+	fun unlinkChannelAccount(username: String, channelType: String, channelUserId: String): Boolean {
+		val key = "$channelType:$channelUserId"
+		val existing = channelLinks[key] ?: return false
+		if (existing.username != username) return false
+		channelLinks.remove(key)
+		logger.info("Channel account unlinked: $channelType:$channelUserId from $username")
+		return true
+	}
+
+	/**
+	 * Resolves a messaging channel identity to a registered username.
+	 * Returns null if no link exists.
+	 */
+	fun resolveChannelUser(channelType: String, channelUserId: String): String? {
+		val key = "$channelType:$channelUserId"
+		return channelLinks[key]?.username
+	}
+
+	/**
+	 * Lists all channel links for a given user.
+	 */
+	fun getChannelLinks(username: String): List<ChannelLinkInfo> {
+		return channelLinks.values
+			.filter { it.username == username }
+			.map { ChannelLinkInfo(it.channelType, it.channelUserId, it.linkedAt) }
+	}
+
+	/**
+	 * Lists all channel links (admin view).
+	 */
+	fun getAllChannelLinks(): List<ChannelLinkInfo> {
+		return channelLinks.values.map { ChannelLinkInfo(it.channelType, it.channelUserId, it.linkedAt) }
+	}
 
 	private fun createSession(username: String, isAdmin: Boolean): DashboardSession {
 		val token = generateToken()

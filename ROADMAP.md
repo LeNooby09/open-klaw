@@ -48,13 +48,17 @@ Let the agent remember across sessions and grow smarter over time.
 
 Meet users where they are: chat apps, email, and beyond.
 
-- [ ] **Discord Integration** — Bi-directional messaging with Discord channels/DMs.
-- [ ] **Telegram Integration** — Full Telegram bot support with inline buttons, reactions, and streaming.
-- [ ] **WhatsApp Integration** — QR/pairing code auth, media support.
-- [ ] **Slack Integration** — Channel messages, reactions, pins, and bot coexistence.
-- [ ] **Email (Gmail Pub/Sub)** — Monitor inbox, send replies, and trigger workflows from email events.
-- [ ] **WebChat UI** — Built-in web interface served directly from the gateway.
-- [ ] **Channel Routing** — Route messages to the right handler based on source channel and context.
+- [x] **Discord Integration** — Bi-directional messaging with Discord channels/DMs via the Discord Bot REST API. HTTP polling for inbound messages with configurable interval, bot mention filtering, automatic message splitting (2000 char limit), and DM support.
+- [x] **Telegram Integration** — Full Telegram bot support with long polling (getUpdates), inline keyboard buttons (sendMessage with reply_markup), emoji reactions (setMessageReaction), and streaming via progressive message editing (editMessageText). Group chat mention filtering and callback query handling.
+- [x] **WhatsApp Integration** — WhatsApp Cloud API (Meta Business) integration with webhook-based inbound message reception (hub verification + POST notifications), text message sending, read receipts, contact name resolution, interactive button/list reply support, and message deduplication.
+- [x] **Slack Integration** — Slack Web API + Events API integration with channel messages (chat.postMessage with mrkdwn blocks), reactions (reactions.add), pins (pins.add), bot coexistence (configurable bot message filtering), HMAC-SHA256 request signature verification, URL verification challenge handling, and automatic channel joining.
+- [x] **Email (Gmail Pub/Sub)** — IMAP polling for inbound emails with SMTP sending. Supports Gmail (App Passwords), Outlook, and standard IMAP/SMTP providers. MIME multipart text extraction, HTML stripping, sender allowlisting, email threading (In-Reply-To/References headers), and on-demand inbox check for Gmail Pub/Sub webhook integration.
+- [x] **WhatsApp Integration** *(updated)* — Added HMAC-SHA256 webhook signature verification (`X-Hub-Signature-256`) with constant-time comparison via `MessageDigest.isEqual`. App secret loaded from `WHATSAPP_APP_SECRET` env var.
+- [x] **Slack Integration** *(updated)* — Signing secret now **required** to start the channel (refuses to start without it). Signature verification uses constant-time comparison. LRU dedup with atomic eviction replaces the old ConcurrentHashMap set.
+- [x] **WebChat UI** — Built-in WebSocket-based chat interface served directly from the gateway at `/ws/chat`. **Requires session token authentication** via `?token=` query parameter — validates against `SessionManager` before accepting connections. Username derived exclusively from the authenticated session, never from client-supplied data. Real-time bi-directional JSON messaging, ping/pong keepalive, and graceful disconnect handling.
+- [x] **Channel Routing** — Pluggable `MessageChannel` interface with `ChannelRouter` that routes inbound messages from any registered channel to the AgentLoop and dispatches responses back to the originating channel. **Account linking required**: channel users must link their messaging identity to a registered Open-Klaw user via the dashboard before messages are processed; unlinked users receive a prompt to link. LRU-evicting session map with configurable max size (`channelSessionMapMaxSize`), input length validation (`maxChannelMessageLength`), periodic cleanup of unlinked sessions, and `/api/channels` status endpoint.
+- [x] **Account Linking API** — REST API for linking/unlinking messaging channel identities to Open-Klaw user accounts: `GET/POST /api/channel-links`, `DELETE /api/channel-links/{type}/{id}`, admin `GET /api/admin/channel-links`. Supports all channel types (Discord, Telegram, WhatsApp, Slack, Email, WebChat).
+- [x] **Channel Security Hardening** — Discord snowflake ID validation (`^\d{1,20}$`) prevents SSRF via crafted channel IDs. All channels use LRU dedup with atomic eviction (synchronized deque+set) replacing the old race-prone ConcurrentHashMap eviction. Email multipart parsing has a recursion depth limit (10 levels) to prevent stack overflow from malicious MIME structures. Webhook rate limiting via dedicated `RateLimiter` instance with periodic cleanup. Jakarta Mail 2.0.3 replaces EOL javax.mail 1.6.2.
 
 ---
 

@@ -7,6 +7,7 @@ import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.websocket.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -23,6 +24,7 @@ import tech.lenooby09.openklaw.session.*
 import tech.lenooby09.openklaw.tools.CanvasTool
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
+import tech.lenooby09.openklaw.messaging.ChannelRouter
 import tech.lenooby09.openklaw.web.DashboardHtml
 
 class GatewayServer(
@@ -33,7 +35,8 @@ class GatewayServer(
 	private val startTime: Long,
 	private val toolRegistry: ToolRegistry? = null,
 	private val canvasTool: CanvasTool? = null,
-	private val memoryManager: MemoryManager? = null
+	private val memoryManager: MemoryManager? = null,
+	private val channelRouter: ChannelRouter? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -46,6 +49,7 @@ class GatewayServer(
 			install(ContentNegotiation) {
 				json(Json { prettyPrint = false; ignoreUnknownKeys = true })
 			}
+			install(WebSockets)
 			install(CORS) {
 				allowHost("localhost:${config.port}")
 				allowHost("127.0.0.1:${config.port}")
@@ -81,6 +85,7 @@ class GatewayServer(
 				userManagementRoutes()
 				storageBudgetRoutes()
 				toolRoutes()
+				messagingRoutes()
 			}
 		}.start(wait = false)
 
@@ -407,6 +412,95 @@ class GatewayServer(
 			call.respond(item)
 		}
 	}
+
+	private val webhookRateLimiter = RateLimiter(
+		SecurityConfig(
+			rateLimitMaxAttempts = securityConfig.rateLimitMaxAttempts * 10,
+			rateLimitWindowMs = securityConfig.rateLimitWindowMs,
+			rateLimitBaseDelayMs = securityConfig.rateLimitBaseDelayMs
+		)
+	)
+
+	private fun Routing.messagingRoutes() {
+		// Messaging channel status endpoint
+		get("/api/channels") {
+			call.requireAuth() ?: return@get
+			val channels = channelRouter?.getRegisteredChannels()?.map { ch ->
+				mapOf(
+					"type" to ch.channelType.name,
+					"name" to ch.displayName,
+					"connected" to ch.connected
+				)
+			} ?: emptyList()
+			call.respond(channels)
+		}
+
+		// Account linking routes
+		get("/api/channel-links") {
+			val session = call.requireAuth() ?: return@get
+			val links = sessionManager.getChannelLinks(session.username)
+			call.respond(links)
+		}
+
+		post("/api/channel-links") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			val req = call.receiveBounded<LinkAccountRequest>() ?: return@post
+			val channelType = req.channelType.uppercase()
+			if (channelType !in validChannelTypes) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid channel type. Valid types: $validChannelTypes"))
+				return@post
+			}
+			if (req.channelUserId.isBlank() || req.channelUserId.length > 100) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid channel user ID."))
+				return@post
+			}
+			val linked = sessionManager.linkChannelAccount(session.username, channelType, req.channelUserId)
+			if (linked) {
+				call.respond(MessageResponse("Channel account linked successfully."))
+			} else {
+				call.respond(HttpStatusCode.Conflict, ErrorResponse("Could not link account — it may already be linked to another user."))
+			}
+		}
+
+		delete("/api/channel-links/{channelType}/{channelUserId}") {
+			val session = call.requireAuth() ?: return@delete
+			if (!call.verifyCsrf(session)) return@delete
+			val channelType = call.parameters["channelType"]?.uppercase() ?: ""
+			val channelUserId = call.parameters["channelUserId"] ?: ""
+			val unlinked = sessionManager.unlinkChannelAccount(session.username, channelType, channelUserId)
+			if (unlinked) {
+				call.respond(MessageResponse("Channel account unlinked."))
+			} else {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Link not found."))
+			}
+		}
+
+		// Admin: view all channel links
+		get("/api/admin/channel-links") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(sessionManager.getAllChannelLinks())
+		}
+
+		// Install webhook and WebSocket routes from registered channels (with rate limiting)
+		channelRouter?.getRegisteredChannels()?.forEach { channel ->
+			when (channel) {
+				is tech.lenooby09.openklaw.messaging.WhatsAppChannel -> channel.installWebhookRoutes(this)
+				is tech.lenooby09.openklaw.messaging.SlackChannel -> channel.installWebhookRoutes(this)
+				is tech.lenooby09.openklaw.messaging.WebChatChannel -> channel.installWebSocketRoute(this)
+			}
+		}
+	}
+
+	fun cleanupWebhookRateLimiter() {
+		webhookRateLimiter.cleanup()
+	}
+
+	private val validChannelTypes = setOf("DISCORD", "TELEGRAM", "WHATSAPP", "SLACK", "EMAIL", "WEBCHAT")
 
 	private suspend fun ApplicationCall.requireAuth(): DashboardSession? {
 		// Read session token from HttpOnly cookie

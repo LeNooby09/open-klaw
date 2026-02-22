@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import tech.lenooby09.openklaw.agent.ChatMessage
 import tech.lenooby09.openklaw.config.MemoryConfig
 import java.io.File
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -38,11 +39,13 @@ class SemanticMemorySearchTest {
 
 	@Test
 	fun `search returns relevant results`() {
+		val sid1 = UUID.randomUUID().toString()
+		val sid2 = UUID.randomUUID().toString()
 		// Log some conversations
-		logger.logMessage("s1", "alice", ChatMessage(id = "1", role = "user", content = "How do I write Kotlin coroutines?", timestamp = 1000L))
-		logger.logMessage("s1", "alice", ChatMessage(id = "2", role = "assistant", content = "Kotlin coroutines use suspend functions and coroutine builders like launch and async.", timestamp = 2000L))
-		logger.logMessage("s2", "bob", ChatMessage(id = "3", role = "user", content = "What is the weather today?", timestamp = 3000L))
-		logger.logMessage("s2", "bob", ChatMessage(id = "4", role = "assistant", content = "I cannot check the weather, but you can use a weather API.", timestamp = 4000L))
+		logger.logMessage(sid1, "alice", ChatMessage(id = "1", role = "user", content = "How do I write Kotlin coroutines?", timestamp = 1000L))
+		logger.logMessage(sid1, "alice", ChatMessage(id = "2", role = "assistant", content = "Kotlin coroutines use suspend functions and coroutine builders like launch and async.", timestamp = 2000L))
+		logger.logMessage(sid2, "bob", ChatMessage(id = "3", role = "user", content = "What is the weather today?", timestamp = 3000L))
+		logger.logMessage(sid2, "bob", ChatMessage(id = "4", role = "assistant", content = "I cannot check the weather, but you can use a weather API.", timestamp = 4000L))
 
 		// Force reindex
 		search.reindex()
@@ -58,7 +61,8 @@ class SemanticMemorySearchTest {
 	fun `search respects maxResults`() {
 		// Log many messages
 		for (i in 1..20) {
-			logger.logMessage("s$i", "alice", ChatMessage(id = "m$i", role = "user", content = "Message about programming topic number $i", timestamp = i * 1000L))
+			val sid = UUID.randomUUID().toString()
+			logger.logMessage(sid, "alice", ChatMessage(id = "m$i", role = "user", content = "Message about programming topic number $i", timestamp = i * 1000L))
 		}
 
 		search.reindex()
@@ -72,7 +76,7 @@ class SemanticMemorySearchTest {
 		val disabledConfig = MemoryConfig(dataDir = tempDir.absolutePath, semanticSearchEnabled = false)
 		val disabledSearch = SemanticMemorySearch(disabledConfig, logger)
 
-		logger.logMessage("s1", "alice", ChatMessage(id = "1", role = "user", content = "Hello world", timestamp = 1000L))
+		logger.logMessage(UUID.randomUUID().toString(), "alice", ChatMessage(id = "1", role = "user", content = "Hello world", timestamp = 1000L))
 
 		val results = disabledSearch.search("Hello")
 		assertTrue(results.isEmpty())

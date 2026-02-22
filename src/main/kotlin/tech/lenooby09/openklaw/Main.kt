@@ -2,14 +2,12 @@ package tech.lenooby09.openklaw
 
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
-import tech.lenooby09.openklaw.config.AppConfig
-import tech.lenooby09.openklaw.config.GatewayConfig
-import tech.lenooby09.openklaw.config.LlmConfig
-import tech.lenooby09.openklaw.config.SecurityConfig
-import tech.lenooby09.openklaw.config.ToolsConfig
+import kotlinx.coroutines.runBlocking
+import tech.lenooby09.openklaw.config.*
 import tech.lenooby09.openklaw.gateway.GatewayServer
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
 import tech.lenooby09.openklaw.memory.MemoryManager
+import tech.lenooby09.openklaw.messaging.*
 import tech.lenooby09.openklaw.session.SessionManager
 import tech.lenooby09.openklaw.tools.*
 
@@ -105,19 +103,51 @@ fun main(args: Array<String>) {
 
 	val agentLoop = AgentLoop(orchestrator, toolRegistry, memoryManager)
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager)
+	// Initialize Messaging & Transport Integrations (Phase 4)
+	val messagingConfig = config.messaging
+	val channelRouter = ChannelRouter(agentLoop, sessionManager, messagingConfig)
+
+	if (messagingConfig.discord.enabled) {
+		channelRouter.register(DiscordChannel(messagingConfig.discord))
+	}
+	if (messagingConfig.telegram.enabled) {
+		channelRouter.register(TelegramChannel(messagingConfig.telegram))
+	}
+	if (messagingConfig.whatsapp.enabled) {
+		channelRouter.register(WhatsAppChannel(messagingConfig.whatsapp, messagingConfig.channelDedupMaxSize))
+	}
+	if (messagingConfig.slack.enabled) {
+		channelRouter.register(SlackChannel(messagingConfig.slack, messagingConfig.channelDedupMaxSize))
+	}
+	if (messagingConfig.email.enabled) {
+		channelRouter.register(EmailChannel(messagingConfig.email, messagingConfig.channelDedupMaxSize))
+	}
+	if (messagingConfig.webChatEnabled) {
+		channelRouter.register(WebChatChannel(sessionManager))
+	}
+
+	logger.info("Messaging integrations initialized — ${channelRouter.getChannelCount()} channels registered")
+
+	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter)
 
 	// Register periodic cleanup callbacks
 	sessionManager.onCleanup { gateway.cleanupRateLimiter() }
+	sessionManager.onCleanup { gateway.cleanupWebhookRateLimiter() }
 	sessionManager.onCleanup { agentLoop.flushIdleConversations(config.security.conversationIdleTimeoutMinutes) }
+	sessionManager.onCleanup { channelRouter.cleanupUnlinkedSessions() }
 
 	Runtime.getRuntime().addShutdownHook(Thread {
 		logger.info("Shutting down Open-Klaw...")
+		runBlocking { channelRouter.stopAll() }
 		sessionManager.stopCleanupScheduler()
 		gateway.stop()
 	})
 
 	gateway.start()
+
+	// Start all registered messaging channels
+	runBlocking { channelRouter.startAll() }
+
 	logger.info("Open-Klaw is ready — http://${config.gateway.bindAddress}:${config.gateway.port}")
 
 	val signupToken = sessionManager.signupToken

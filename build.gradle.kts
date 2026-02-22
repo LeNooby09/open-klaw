@@ -24,6 +24,15 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-server-cors:$ktorVersion")
     implementation("io.ktor:ktor-server-sse:$ktorVersion")
+    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
+
+    // Ktor client (for outbound API calls to Discord, Telegram, Slack, WhatsApp, Gmail)
+    implementation("io.ktor:ktor-client-core:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+
+    // Jakarta Mail for SMTP/IMAP email support (successor to javax.mail)
+    implementation("org.eclipse.angus:angus-mail:2.0.3")
 
     // BCrypt for password hashing
     implementation("at.favre.lib:bcrypt:0.10.2")

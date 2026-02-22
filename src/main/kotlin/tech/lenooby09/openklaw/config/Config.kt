@@ -9,7 +9,8 @@ data class AppConfig(
 	val auth: AuthConfig = AuthConfig(),
 	val security: SecurityConfig = SecurityConfig(),
 	val tools: ToolsConfig = ToolsConfig(),
-	val memory: MemoryConfig = MemoryConfig()
+	val memory: MemoryConfig = MemoryConfig(),
+	val messaging: MessagingConfig = MessagingConfig()
 )
 
 @Serializable
@@ -92,3 +93,85 @@ data class MemoryConfig(
 	val maxMemoryFileSize: Long = 512 * 1024,
 	val defaultUserStorageBudget: Long = 256 * 1024
 )
+
+// --- Phase 4: Messaging & Transport Integrations ---
+
+@Serializable
+data class MessagingConfig(
+	val discord: DiscordConfig = DiscordConfig(),
+	val telegram: TelegramConfig = TelegramConfig(),
+	val whatsapp: WhatsAppConfig = WhatsAppConfig(),
+	val slack: SlackConfig = SlackConfig(),
+	val email: EmailConfig = EmailConfig(),
+	val webChatEnabled: Boolean = true,
+	val maxChannelMessageLength: Int = 10_000,
+	val channelSessionMapMaxSize: Int = 50_000,
+	val channelDedupMaxSize: Int = 10_000
+)
+
+@Serializable
+data class DiscordConfig(
+	val enabled: Boolean = false,
+	val botTokenEnv: String = "DISCORD_BOT_TOKEN",
+	val channelIds: List<String> = emptyList(),
+	val pollIntervalMs: Long = 2000,
+	val respondToAll: Boolean = false
+) {
+	val botToken: String get() = if (botTokenEnv.isNotEmpty()) System.getenv(botTokenEnv) ?: "" else ""
+}
+
+@Serializable
+data class TelegramConfig(
+	val enabled: Boolean = false,
+	val botTokenEnv: String = "TELEGRAM_BOT_TOKEN",
+	val longPollTimeoutSeconds: Long = 30,
+	val respondToAllGroupMessages: Boolean = false
+) {
+	val botToken: String get() = if (botTokenEnv.isNotEmpty()) System.getenv(botTokenEnv) ?: "" else ""
+}
+
+@Serializable
+data class WhatsAppConfig(
+	val enabled: Boolean = false,
+	val accessTokenEnv: String = "WHATSAPP_ACCESS_TOKEN",
+	val appSecretEnv: String = "WHATSAPP_APP_SECRET",
+	val phoneNumberId: String = "",
+	val webhookVerifyToken: String = "",
+) {
+	val accessToken: String get() = if (accessTokenEnv.isNotEmpty()) System.getenv(accessTokenEnv) ?: "" else ""
+	val appSecret: String get() = if (appSecretEnv.isNotEmpty()) System.getenv(appSecretEnv) ?: "" else ""
+}
+
+@Serializable
+data class SlackConfig(
+	val enabled: Boolean = false,
+	val botTokenEnv: String = "SLACK_BOT_TOKEN",
+	val signingSecretEnv: String = "SLACK_SIGNING_SECRET",
+	val channelIds: List<String> = emptyList(),
+	val respondToOtherBots: Boolean = false
+) {
+	val botToken: String get() = if (botTokenEnv.isNotEmpty()) System.getenv(botTokenEnv) ?: "" else ""
+	val signingSecret: String get() = if (signingSecretEnv.isNotEmpty()) System.getenv(signingSecretEnv) ?: "" else ""
+}
+
+@Serializable
+data class EmailConfig(
+	val enabled: Boolean = false,
+	val username: String = "",
+	val passwordEnv: String = "EMAIL_PASSWORD",
+	val imapHost: String = "imap.gmail.com",
+	val imapPort: Int = 993,
+	val imapSsl: Boolean = true,
+	val imapStartTls: Boolean = false,
+	val smtpHost: String = "smtp.gmail.com",
+	val smtpPort: Int = 587,
+	val smtpSsl: Boolean = false,
+	val smtpStartTls: Boolean = true,
+	val fromName: String = "Open-Klaw",
+	val inboxFolder: String = "INBOX",
+	val pollIntervalMs: Long = 30_000,
+	val allowedSenders: List<String> = emptyList(),
+	val maxEmailBodyLength: Int = 10_000
+) {
+	val password: String get() = if (passwordEnv.isNotEmpty()) System.getenv(passwordEnv) ?: "" else ""
+}

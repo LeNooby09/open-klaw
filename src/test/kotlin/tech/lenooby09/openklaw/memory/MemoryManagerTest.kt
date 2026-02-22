@@ -39,8 +39,8 @@ class MemoryManagerTest {
 	fun `buildMemoryContext includes soul and memory`() {
 		manager.initialize()
 		val context = manager.buildMemoryContext("alice")
-		assertContains(context, "IDENTITY & PERSONALITY")
-		assertContains(context, "LONG-TERM MEMORY")
+		assertContains(context, "BEGIN_DATA:IDENTITY_PERSONALITY")
+		assertContains(context, "BEGIN_DATA:LONG_TERM_MEMORY")
 	}
 
 	@Test
@@ -48,7 +48,7 @@ class MemoryManagerTest {
 		manager.initialize()
 		manager.memoryFiles.writeUserProfile("alice", "# Alice\nPrefers Kotlin")
 		val context = manager.buildMemoryContext("alice")
-		assertContains(context, "USER PROFILE (alice)")
+		assertContains(context, "BEGIN_DATA:USER_PROFILE_alice")
 		assertContains(context, "Prefers Kotlin")
 	}
 
@@ -56,7 +56,7 @@ class MemoryManagerTest {
 	fun `buildMemoryContext excludes user profile when it does not exist`() {
 		manager.initialize()
 		val context = manager.buildMemoryContext("nonexistent")
-		assertFalse(context.contains("USER PROFILE (nonexistent)"))
+		assertFalse(context.contains("USER_PROFILE_nonexistent"))
 	}
 
 	@Test
