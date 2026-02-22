@@ -30,7 +30,7 @@ data class UserAccount(
 data class LoginRequest(val username: String, val password: String)
 
 @Serializable
-data class LoginResponse(val token: String, val csrfToken: String, val username: String, val isAdmin: Boolean)
+data class LoginResponse(val username: String, val isAdmin: Boolean)
 
 @Serializable
 data class MeResponse(val username: String, val isAdmin: Boolean)
@@ -73,6 +73,7 @@ class SessionManager(
 	private val sessions = ConcurrentHashMap<String, DashboardSession>()
 	private val users = ConcurrentHashMap<String, UserAccount>()
 	private var cleanupTimer: Timer? = null
+	private val cleanupCallbacks = mutableListOf<() -> Unit>()
 
 	@Volatile
 	var signupToken: String? = null
@@ -84,10 +85,24 @@ class SessionManager(
 		}
 	}
 
+	/**
+	 * Registers a callback to be invoked during each periodic cleanup cycle.
+	 */
+	fun onCleanup(callback: () -> Unit) {
+		cleanupCallbacks.add(callback)
+	}
+
 	fun startCleanupScheduler() {
 		val intervalMs = securityConfig.sessionCleanupIntervalMinutes * 60 * 1000L
 		cleanupTimer = fixedRateTimer("session-cleanup", daemon = true, initialDelay = intervalMs, period = intervalMs) {
 			cleanupExpiredSessions()
+			cleanupCallbacks.forEach { callback ->
+				try {
+					callback()
+				} catch (e: Exception) {
+					logger.error("Cleanup callback failed: ${e.message}", e)
+				}
+			}
 		}
 		logger.info("Session cleanup scheduler started (every ${securityConfig.sessionCleanupIntervalMinutes} minutes)")
 	}

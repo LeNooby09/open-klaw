@@ -18,40 +18,45 @@ class RateLimiter(private val config: SecurityConfig) {
 	/**
 	 * Checks whether the given key (e.g. IP or username) is currently rate-limited.
 	 * Returns the number of milliseconds the caller must wait, or 0 if the request is allowed.
+	 * Uses atomic compute() to prevent race conditions.
 	 */
 	fun checkAndRecord(key: String): Long {
-		val now = System.currentTimeMillis()
-		val entry = entries[key]
+		var waitMs = 0L
+		entries.compute(key) { _, existing ->
+			val now = System.currentTimeMillis()
 
-		if (entry != null && now < entry.lockedUntil) {
-			return entry.lockedUntil - now
+			if (existing == null) {
+				waitMs = 0
+				return@compute RateLimitEntry(attempts = 1, firstAttemptAt = now, lastAttemptAt = now)
+			}
+
+			// Currently locked out
+			if (now < existing.lockedUntil) {
+				waitMs = existing.lockedUntil - now
+				return@compute existing
+			}
+
+			// Window expired — reset
+			if ((now - existing.firstAttemptAt) > config.rateLimitWindowMs) {
+				waitMs = 0
+				return@compute RateLimitEntry(attempts = 1, firstAttemptAt = now, lastAttemptAt = now)
+			}
+
+			val newAttempts = existing.attempts + 1
+			if (newAttempts > config.rateLimitMaxAttempts) {
+				val exponent = (newAttempts - config.rateLimitMaxAttempts).coerceAtMost(10)
+				val delayMs = min(
+					config.rateLimitBaseDelayMs * 2.0.pow(exponent).toLong(),
+					300_000L
+				)
+				waitMs = delayMs
+				return@compute existing.copy(attempts = newAttempts, lastAttemptAt = now, lockedUntil = now + delayMs)
+			}
+
+			waitMs = 0
+			existing.copy(attempts = newAttempts, lastAttemptAt = now)
 		}
-
-		if (entry != null && (now - entry.firstAttemptAt) > config.rateLimitWindowMs) {
-			entries.remove(key)
-			return 0
-		}
-
-		val current = entries[key]
-		if (current == null) {
-			entries[key] = RateLimitEntry(attempts = 1, firstAttemptAt = now, lastAttemptAt = now)
-			return 0
-		}
-
-		val newAttempts = current.attempts + 1
-		if (newAttempts > config.rateLimitMaxAttempts) {
-			val exponent = (newAttempts - config.rateLimitMaxAttempts).coerceAtMost(10)
-			val delayMs = min(
-				config.rateLimitBaseDelayMs * 2.0.pow(exponent).toLong(),
-				300_000L
-			)
-			val lockedUntil = now + delayMs
-			entries[key] = current.copy(attempts = newAttempts, lastAttemptAt = now, lockedUntil = lockedUntil)
-			return delayMs
-		}
-
-		entries[key] = current.copy(attempts = newAttempts, lastAttemptAt = now)
-		return 0
+		return waitMs
 	}
 
 	fun recordSuccess(key: String) {

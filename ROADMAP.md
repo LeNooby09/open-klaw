@@ -15,7 +15,7 @@ The foundation: a running agent that can receive a message, think, act, and resp
 - [x] **Model Failover** — Automatic priority-based fallback to secondary models when the primary is unavailable.
 - [x] **Streaming / Chunked Responses** — Stream partial responses back to the user in real time via the agent loop.
 - [x] **Session Management** — BCrypt password auth, 256-bit token generation, 24h session expiry in ConcurrentHashMap.
-- [x] **Security Hardening** — One-time signup token for first admin registration (no hardcoded credentials), localhost-only CORS, login rate limiting with exponential backoff, CSRF token protection (via `X-CSRF-Token` header + `SameSite=Strict` cookie), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), HTTPS enforcement for non-localhost binds, input sanitization with configurable max payload size, conversation session ownership verification, periodic expired session cleanup, API keys loaded from environment variables (`apiKeyEnv`), and user management APIs (create/delete users, change password, list users).
+- [x] **Security Hardening** — One-time signup token for first admin registration (no hardcoded credentials), localhost-only CORS with credentials support, login rate limiting with exponential backoff (atomic/thread-safe), two-cookie CSRF protection (HttpOnly session cookie + readable CSRF cookie for double-submit pattern via `X-CSRF-Token` header), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), HTTPS enforcement for non-localhost binds, bounded request body reading (hard byte limit regardless of Content-Length header) with configurable max payload size, username format validation (`^[a-zA-Z0-9_-]{3,32}$`), conversation session ownership verification with authorization checks on delete, periodic expired session cleanup with pluggable cleanup callbacks (rate limiter + idle conversation flushing), idle conversation archival to JSONL on disk, API keys loaded from environment variables (`apiKeyEnv`), user management APIs (create/delete users, change password, list users), and DOM XSS prevention via `addEventListener` (no inline event handlers).
 
 ---
 
@@ -23,11 +23,11 @@ The foundation: a running agent that can receive a message, think, act, and resp
 
 Give the agent hands: the ability to interact with the real world.
 
-- [ ] **Shell Command Execution** — Run arbitrary shell commands in a sandboxed environment.
-- [ ] **File System Access** — Read, write, search, and manage files and directories.
-- [ ] **Browser Control** — Headless/headed browser automation (navigate, click, fill forms, take snapshots).
-- [ ] **Canvas / UI Surface** — Push rich content (HTML, images, interactive elements) to a display surface.
-- [ ] **Tool Registry** — Pluggable tool interface so new tools can be registered at runtime.
+- [x] **Shell Command Execution** — Run arbitrary shell commands in a sandboxed environment. Configurable timeouts, blocked command patterns, and working directory support.
+- [x] **File System Access** — Read, write, append, list, search, delete, mkdir, exists, and info operations. Path traversal protection via base directory scoping.
+- [x] **Browser Control** — HTTP-based navigation, text/link extraction, and page snapshots. Form fill, click, and JS execution stubbed for future Playwright/Selenium integration.
+- [x] **Canvas / UI Surface** — Push, update, remove, clear, and list rich content items (HTML, Markdown, images, code) on a display surface accessible via REST API.
+- [x] **Tool Registry** — Pluggable `Tool` interface with runtime registration/unregistration. Automatic parameter validation, execution timing, and LLM system prompt generation for tool descriptions.
 
 ---
 
@@ -93,7 +93,7 @@ Production-grade reliability and safety guardrails.
 - [ ] **Health Checks & Doctor Diagnostics** — Self-diagnosis tools to detect misconfiguration or degraded state.
 - [ ] **Logging & Observability** — Structured logging, usage tracking, and presence/typing indicators.
 - [x] **Auth & Access Control** — Username/password, token-based auth for the gateway and UI. One-time signup token, CSRF protection, rate limiting, and user management.
-- [ ] **Sandboxed Execution** — Isolate tool execution to prevent unintended side effects.
+- [x] **Sandboxed Execution** — Docker-first execution model: the application defaults to running inside a Docker container where shell/filesystem tools are confined. Bare-metal mode requires explicit opt-in via `--bare-metal` flag or `OPENKLAW_BARE_METAL=true` env var. Container runs as non-root user with all capabilities dropped, resource limits enforced, and workspace/data volumes isolated. Startup blocked without sandbox detection unless bare-metal is explicitly acknowledged.
 
 ---
 
@@ -101,7 +101,7 @@ Production-grade reliability and safety guardrails.
 
 Run everywhere: desktop, mobile, containers.
 
-- [ ] **Docker Deployment** — One-command `docker compose up` with all services configured.
+- [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (build + minimal JRE runtime), non-root user, dropped capabilities, `no-new-privileges`, resource limits (2GB RAM, 2 CPUs), persistent volumes for workspace and data. Launch script (`run.sh`) defaults to Docker, with `--bare-metal` escape hatch.
 - [ ] **Tailscale / SSH Tunnels** — Secure remote access without exposing the gateway to the public internet.
 - [ ] **Desktop App (macOS/Linux/Windows)** — System tray/menu bar control, voice wake, push-to-talk.
 - [ ] **Mobile Nodes (iOS/Android)** — Pair mobile devices as agent nodes with voice trigger and canvas support.

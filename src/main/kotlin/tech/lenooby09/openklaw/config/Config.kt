@@ -7,7 +7,8 @@ data class AppConfig(
 	val gateway: GatewayConfig = GatewayConfig(),
 	val llm: LlmConfig = LlmConfig(),
 	val auth: AuthConfig = AuthConfig(),
-	val security: SecurityConfig = SecurityConfig()
+	val security: SecurityConfig = SecurityConfig(),
+	val tools: ToolsConfig = ToolsConfig()
 )
 
 @Serializable
@@ -54,7 +55,21 @@ data class SecurityConfig(
 	val rateLimitWindowMs: Long = 60_000,
 	val sessionCleanupIntervalMinutes: Int = 15,
 	val maxInputSizeMb: Double = 1.0,
-	val maxInputSizeBytes: Long = (1.0 * 1024 * 1024).toLong()
+	val conversationIdleTimeoutMinutes: Int = 1440
 ) {
 	fun computeMaxInputSizeBytes(): Long = (maxInputSizeMb * 1024 * 1024).toLong()
 }
+
+@Serializable
+data class ToolsConfig(
+	val shellEnabled: Boolean = true,
+	val fileSystemEnabled: Boolean = true,
+	val browserEnabled: Boolean = true,
+	val canvasEnabled: Boolean = true,
+	val shellTimeoutSeconds: Long = 30,
+	val shellMaxOutputLength: Int = 50_000,
+	val fileSystemBaseDir: String = ".",
+	val fileSystemMaxFileSizeBytes: Long = 10 * 1024 * 1024,
+	val browserHeadless: Boolean = true,
+	val browserTimeoutSeconds: Long = 30
+)

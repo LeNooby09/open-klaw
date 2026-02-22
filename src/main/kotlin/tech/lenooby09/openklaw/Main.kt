@@ -6,15 +6,47 @@ import tech.lenooby09.openklaw.config.AppConfig
 import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.LlmConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
+import tech.lenooby09.openklaw.config.ToolsConfig
 import tech.lenooby09.openklaw.gateway.GatewayServer
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
 import tech.lenooby09.openklaw.session.SessionManager
+import tech.lenooby09.openklaw.tools.*
 
-fun main() {
+fun main(args: Array<String>) {
 	val logger = LoggerFactory.getLogger("open-klaw")
 	val startTime = System.currentTimeMillis()
 
 	logger.info("Starting Open-Klaw...")
+
+	// Sandbox detection: require either Docker container or explicit bare-metal opt-in
+	val isSandboxed = System.getenv("OPENKLAW_SANDBOXED")?.toBoolean() == true
+	val isBareMetal = System.getenv("OPENKLAW_BARE_METAL")?.toBoolean() == true || args.contains("--bare-metal")
+
+	if (!isSandboxed && !isBareMetal) {
+		logger.error("╔══════════════════════════════════════════════════════════════╗")
+		logger.error("║  STARTUP BLOCKED: No sandbox detected.                      ║")
+		logger.error("║                                                              ║")
+		logger.error("║  Open-Klaw's shell and filesystem tools grant the LLM        ║")
+		logger.error("║  direct access to the host system. Running without a sandbox ║")
+		logger.error("║  (e.g., Docker) is a serious security risk.                  ║")
+		logger.error("║                                                              ║")
+		logger.error("║  To start safely:    ./run.sh                (uses Docker)   ║")
+		logger.error("║  To force bare-metal: ./run.sh --bare-metal                  ║")
+		logger.error("║    or set env:  OPENKLAW_BARE_METAL=true                     ║")
+		logger.error("╚══════════════════════════════════════════════════════════════╝")
+		System.exit(1)
+		return
+	}
+
+	if (isBareMetal && !isSandboxed) {
+		logger.warn("╔══════════════════════════════════════════════════════════╗")
+		logger.warn("║  ⚠  WARNING: Running in bare-metal mode.               ║")
+		logger.warn("║  Shell and filesystem tools have UNRESTRICTED access    ║")
+		logger.warn("║  to the host system. Use Docker for safer execution.    ║")
+		logger.warn("╚══════════════════════════════════════════════════════════╝")
+	} else {
+		logger.info("Running in sandboxed container mode.")
+	}
 
 	val config = AppConfig(
 		gateway = GatewayConfig(
@@ -26,7 +58,14 @@ fun main() {
 			providers = emptyList(),
 			failoverEnabled = true
 		),
-		security = SecurityConfig()
+		security = SecurityConfig(),
+		tools = ToolsConfig(
+			shellEnabled = System.getenv("OPENKLAW_TOOL_SHELL")?.toBoolean() ?: true,
+			fileSystemEnabled = System.getenv("OPENKLAW_TOOL_FILE")?.toBoolean() ?: true,
+			browserEnabled = System.getenv("OPENKLAW_TOOL_BROWSER")?.toBoolean() ?: true,
+			canvasEnabled = System.getenv("OPENKLAW_TOOL_CANVAS")?.toBoolean() ?: true,
+			fileSystemBaseDir = System.getenv("OPENKLAW_FILE_BASE_DIR") ?: "."
+		)
 	)
 
 	val sessionManager = SessionManager(config.auth, config.security)
@@ -35,9 +74,28 @@ fun main() {
 	val orchestrator = LlmOrchestrator(config.llm)
 	orchestrator.initialize()
 
-	val agentLoop = AgentLoop(orchestrator)
+	// Initialize Tool Registry and register built-in tools
+	val toolRegistry = ToolRegistry()
+	val canvasTool = CanvasTool(config.tools)
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime)
+	val shellTool = ShellTool(config.tools)
+	val fileSystemTool = FileSystemTool(config.tools)
+	val browserTool = BrowserTool(config.tools)
+
+	toolRegistry.register(shellTool)
+	toolRegistry.register(fileSystemTool)
+	toolRegistry.register(browserTool)
+	toolRegistry.register(canvasTool)
+
+	logger.info("Tool execution engine initialized — ${toolRegistry.getToolCount()} tools registered")
+
+	val agentLoop = AgentLoop(orchestrator, toolRegistry)
+
+	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool)
+
+	// Register periodic cleanup callbacks
+	sessionManager.onCleanup { gateway.cleanupRateLimiter() }
+	sessionManager.onCleanup { agentLoop.flushIdleConversations(config.security.conversationIdleTimeoutMinutes) }
 
 	Runtime.getRuntime().addShutdownHook(Thread {
 		logger.info("Shutting down Open-Klaw...")

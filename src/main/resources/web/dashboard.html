@@ -406,8 +406,6 @@
 </div>
 
 <script>
-    let token = localStorage.getItem('token');
-    let csrfToken = localStorage.getItem('csrfToken');
     let username = localStorage.getItem('username');
     let isAdmin = localStorage.getItem('isAdmin') === 'true';
     let currentSessionId = '';
@@ -419,10 +417,20 @@
         return d.innerHTML
     }
 
+    function escAttr(s) {
+        return JSON.stringify(String(s)).slice(1, -1);
+    }
+
+    function getCookie(name) {
+        const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
     async function api(method, url, body) {
-        const o = {method, headers: {'Authorization': 'Bearer ' + token}};
-        if (csrfToken && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-            o.headers['X-CSRF-Token'] = csrfToken;
+        const o = {method, headers: {}, credentials: 'same-origin'};
+        const csrf = getCookie('csrf_token');
+        if (csrf && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+            o.headers['X-CSRF-Token'] = csrf;
         }
         if (body) {
             o.headers['Content-Type'] = 'application/json';
@@ -487,12 +495,8 @@
         });
         if (r.ok) {
             const d = await r.json();
-            token = d.token;
-            csrfToken = d.csrfToken;
             username = d.username;
             isAdmin = d.isAdmin;
-            localStorage.setItem('token', token);
-            localStorage.setItem('csrfToken', csrfToken);
             localStorage.setItem('username', username);
             localStorage.setItem('isAdmin', String(isAdmin));
             showDashboard();
@@ -512,12 +516,8 @@
         });
         if (r.ok) {
             const d = await r.json();
-            token = d.token;
-            csrfToken = d.csrfToken;
             username = d.username;
             isAdmin = d.isAdmin;
-            localStorage.setItem('token', token);
-            localStorage.setItem('csrfToken', csrfToken);
             localStorage.setItem('username', username);
             localStorage.setItem('isAdmin', String(isAdmin));
             showDashboard();
@@ -529,12 +529,8 @@
 
     async function doLogout() {
         await api('POST', '/api/logout');
-        token = null;
-        csrfToken = null;
         username = null;
         isAdmin = false;
-        localStorage.removeItem('token');
-        localStorage.removeItem('csrfToken');
         localStorage.removeItem('username');
         localStorage.removeItem('isAdmin');
         showLogin();
@@ -615,19 +611,28 @@
             tb.innerHTML = '<tr><td colspan="6" style="color:#888">No conversations.</td></tr>';
             return
         }
-        tb.innerHTML = list.map(c =>
-            '<tr><td style="font-size:.75rem">' + esc(c.id.substring(0, 8)) + '…</td>' +
-            '<td><strong>' + esc(c.username) + '</strong></td>' +
-            '<td>' + c.messageCount + '</td>' +
-            '<td>' + new Date(c.createdAt).toLocaleString() + '</td>' +
-            '<td>' + new Date(c.lastActiveAt).toLocaleString() + '</td>' +
-            '<td><button class="danger" onclick="deleteConv(\'' + c.id + '\')">Delete</button></td></tr>'
-        ).join('');
+        tb.innerHTML = '';
+        list.forEach(c => {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td style="font-size:.75rem">' + esc(c.id.substring(0, 8)) + '…</td>' +
+                '<td><strong>' + esc(c.username) + '</strong></td>' +
+                '<td>' + parseInt(c.messageCount) + '</td>' +
+                '<td>' + new Date(c.createdAt).toLocaleString() + '</td>' +
+                '<td>' + new Date(c.lastActiveAt).toLocaleString() + '</td>' +
+                '<td></td>';
+            const btn = document.createElement('button');
+            btn.className = 'danger';
+            btn.textContent = 'Delete';
+            btn.addEventListener('click', () => deleteConv(c.id));
+            tr.lastElementChild.appendChild(btn);
+            tb.appendChild(tr);
+        });
     }
 
     async function deleteConv(id) {
         if (!confirm('Delete this conversation?')) return;
-        const r = await api('DELETE', '/api/conversations/' + id);
+        const r = await api('DELETE', '/api/conversations/' + encodeURIComponent(id));
         if (r.ok) {
             toast('Conversation deleted.');
             loadConversations()
@@ -646,12 +651,25 @@
             tb.innerHTML = '<tr><td colspan="4" style="color:#888">No users.</td></tr>';
             return
         }
-        tb.innerHTML = list.map(u =>
-            '<tr><td><strong>' + esc(u.username) + '</strong></td>' +
-            '<td>' + (u.isAdmin ? 'Yes' : 'No') + '</td>' +
-            '<td>' + new Date(u.createdAt).toLocaleString() + '</td>' +
-            '<td>' + (u.username !== username ? '<button class="danger" onclick="deleteUser(\'' + esc(u.username) + '\')">Delete</button>' : '<span style="color:#555">—</span>') + '</td></tr>'
-        ).join('');
+        tb.innerHTML = '';
+        list.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td><strong>' + esc(u.username) + '</strong></td>' +
+                '<td>' + (u.isAdmin ? 'Yes' : 'No') + '</td>' +
+                '<td>' + new Date(u.createdAt).toLocaleString() + '</td>' +
+                '<td></td>';
+            if (u.username !== username) {
+                const btn = document.createElement('button');
+                btn.className = 'danger';
+                btn.textContent = 'Delete';
+                btn.addEventListener('click', () => deleteUser(u.username));
+                tr.lastElementChild.appendChild(btn);
+            } else {
+                tr.lastElementChild.innerHTML = '<span style="color:#555">—</span>';
+            }
+            tb.appendChild(tr);
+        });
     }
 
     function showCreateUser() {
@@ -730,25 +748,17 @@
             }
         }
 
-        if (token) {
-            const r = await api('GET', '/api/me');
-            if (r.ok) {
-                const d = await r.json();
-                username = d.username;
-                isAdmin = d.isAdmin;
-                localStorage.setItem('isAdmin', String(isAdmin));
-                showDashboard();
-            } else {
-                localStorage.removeItem('token');
-                localStorage.removeItem('csrfToken');
-                localStorage.removeItem('username');
-                localStorage.removeItem('isAdmin');
-                token = null;
-                csrfToken = null;
-                showLogin();
-            }
+        const r = await api('GET', '/api/me');
+        if (r.ok) {
+            const d = await r.json();
+            username = d.username;
+            isAdmin = d.isAdmin;
+            localStorage.setItem('isAdmin', String(isAdmin));
+            showDashboard();
         } else {
-            showLogin()
+            localStorage.removeItem('username');
+            localStorage.removeItem('isAdmin');
+            showLogin();
         }
     })();
 </script>

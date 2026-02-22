@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  open-klaw:
+    build: .
+    container_name: open-klaw
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist workspace and conversation data between restarts
+      - openklaw-workspace:/workspace
+      - openklaw-data:/data
+    environment:
+      - OPENKLAW_SANDBOXED=true
+      - OPENKLAW_PORT=8080
+      - OPENKLAW_BIND=0.0.0.0
+      - OPENKLAW_FILE_BASE_DIR=/workspace
+      # Pass API keys from host environment
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    # Security: drop all capabilities, add back only what's needed
+    cap_drop:
+      - ALL
+    # Prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    restart: unless-stopped
+
+volumes:
+  openklaw-workspace:
+  openklaw-data:

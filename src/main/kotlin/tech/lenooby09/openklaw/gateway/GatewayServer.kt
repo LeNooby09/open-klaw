@@ -10,6 +10,7 @@ import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
@@ -18,6 +19,9 @@ import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
 import tech.lenooby09.openklaw.security.RateLimiter
 import tech.lenooby09.openklaw.session.*
+import tech.lenooby09.openklaw.tools.CanvasTool
+import tech.lenooby09.openklaw.tools.ToolExecutionRequest
+import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.web.DashboardHtml
 
 class GatewayServer(
@@ -25,7 +29,9 @@ class GatewayServer(
 	private val securityConfig: SecurityConfig,
 	private val sessionManager: SessionManager,
 	private val agentLoop: AgentLoop,
-	private val startTime: Long
+	private val startTime: Long,
+	private val toolRegistry: ToolRegistry? = null,
+	private val canvasTool: CanvasTool? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -47,8 +53,8 @@ class GatewayServer(
 				allowMethod(HttpMethod.Delete)
 				allowMethod(HttpMethod.Options)
 				allowHeader(HttpHeaders.ContentType)
-				allowHeader(HttpHeaders.Authorization)
 				allowHeader("X-CSRF-Token")
+				allowCredentials = true
 			}
 			intercept(ApplicationCallPipeline.Plugins) {
 				call.response.header("X-Content-Type-Options", "nosniff")
@@ -71,6 +77,7 @@ class GatewayServer(
 				authRoutes()
 				apiRoutes()
 				userManagementRoutes()
+				toolRoutes()
 			}
 		}.start(wait = false)
 
@@ -81,6 +88,10 @@ class GatewayServer(
 		server?.stop(gracePeriodMillis = 1000, timeoutMillis = 2000)
 		sessionManager.clearAllSessions()
 		logger.info("Gateway server stopped")
+	}
+
+	fun cleanupRateLimiter() {
+		rateLimiter.cleanup()
 	}
 
 	private fun Routing.dashboardRoute() {
@@ -95,9 +106,13 @@ class GatewayServer(
 				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Registration is closed. Users already exist."))
 				return@post
 			}
-			val req = call.receiveSanitized<SignupRequest>() ?: return@post
+			val req = call.receiveBounded<SignupRequest>() ?: return@post
 			if (req.username.isBlank() || req.password.isBlank()) {
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Username and password are required."))
+				return@post
+			}
+			if (!isValidUsername(req.username)) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Username must be 3-32 characters: letters, digits, underscores, hyphens only."))
 				return@post
 			}
 			if (req.password.length < 8) {
@@ -106,8 +121,8 @@ class GatewayServer(
 			}
 			val session = sessionManager.registerFirstAdmin(req.username, req.password, req.signupToken)
 			if (session != null) {
-				call.response.header("Set-Cookie", buildCsrfCookie(session.csrfToken))
-				call.respond(LoginResponse(session.token, session.csrfToken, session.username, session.isAdmin))
+				call.setSessionCookies(session)
+				call.respond(LoginResponse(session.username, session.isAdmin))
 			} else {
 				call.respond(HttpStatusCode.Unauthorized, ErrorResponse("Invalid signup token."))
 			}
@@ -122,12 +137,12 @@ class GatewayServer(
 				return@post
 			}
 
-			val req = call.receiveSanitized<LoginRequest>() ?: return@post
+			val req = call.receiveBounded<LoginRequest>() ?: return@post
 			val session = sessionManager.authenticate(req.username, req.password)
 			if (session != null) {
 				rateLimiter.recordSuccess(clientIp)
-				call.response.header("Set-Cookie", buildCsrfCookie(session.csrfToken))
-				call.respond(LoginResponse(session.token, session.csrfToken, session.username, session.isAdmin))
+				call.setSessionCookies(session)
+				call.respond(LoginResponse(session.username, session.isAdmin))
 			} else {
 				call.respond(HttpStatusCode.Unauthorized, ErrorResponse("Invalid username or password."))
 			}
@@ -136,7 +151,7 @@ class GatewayServer(
 		post("/api/logout") {
 			val session = call.requireAuth() ?: return@post
 			sessionManager.removeSession(session.token)
-			call.response.header("Set-Cookie", "csrf_token=; Path=/; Max-Age=0; SameSite=Strict")
+			call.clearSessionCookies()
 			call.respond(MessageResponse("Logged out."))
 		}
 
@@ -146,6 +161,8 @@ class GatewayServer(
 		}
 
 		get("/api/setup-required") {
+			// Always return a response with the same structure to avoid leaking setup state to attackers.
+			// The 'true'/'false' value is safe since the signup endpoint itself validates the token.
 			call.respond(MessageResponse(if (!sessionManager.hasUsers()) "true" else "false"))
 		}
 	}
@@ -167,13 +184,12 @@ class GatewayServer(
 		post("/api/chat") {
 			val session = call.requireAuth() ?: return@post
 			if (!call.verifyCsrf(session)) return@post
-			val req = call.receiveSanitized<ChatRequest>() ?: return@post
-			val sanitizedMessage = sanitizeInput(req.message)
-			if (sanitizedMessage.isBlank()) {
+			val req = call.receiveBounded<ChatRequest>() ?: return@post
+			if (req.message.isBlank()) {
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Message cannot be empty."))
 				return@post
 			}
-			val response = agentLoop.chat(session.username, ChatRequest(sanitizedMessage, req.sessionId))
+			val response = agentLoop.chat(session.username, req)
 			call.respond(response)
 		}
 
@@ -207,18 +223,14 @@ class GatewayServer(
 		delete("/api/conversations/{id}") {
 			val session = call.requireAuth() ?: return@delete
 			if (!call.verifyCsrf(session)) return@delete
-			if (!session.isAdmin) {
-				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
-				return@delete
-			}
 			val id = call.parameters["id"] ?: run {
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing conversation ID."))
 				return@delete
 			}
-			if (agentLoop.deleteConversation(id)) {
+			if (agentLoop.deleteConversation(id, session.username, session.isAdmin)) {
 				call.respond(MessageResponse("Conversation deleted."))
 			} else {
-				call.respond(HttpStatusCode.NotFound, ErrorResponse("Conversation not found."))
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Conversation not found or access denied."))
 			}
 		}
 	}
@@ -231,9 +243,13 @@ class GatewayServer(
 				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
 				return@post
 			}
-			val req = call.receiveSanitized<CreateUserRequest>() ?: return@post
+			val req = call.receiveBounded<CreateUserRequest>() ?: return@post
 			if (req.username.isBlank() || req.password.isBlank()) {
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Username and password are required."))
+				return@post
+			}
+			if (!isValidUsername(req.username)) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Username must be 3-32 characters: letters, digits, underscores, hyphens only."))
 				return@post
 			}
 			if (req.password.length < 8) {
@@ -277,7 +293,7 @@ class GatewayServer(
 		post("/api/change-password") {
 			val session = call.requireAuth() ?: return@post
 			if (!call.verifyCsrf(session)) return@post
-			val req = call.receiveSanitized<ChangePasswordRequest>() ?: return@post
+			val req = call.receiveBounded<ChangePasswordRequest>() ?: return@post
 			if (req.newPassword.length < 8) {
 				call.respond(HttpStatusCode.BadRequest, ErrorResponse("New password must be at least 8 characters."))
 				return@post
@@ -290,13 +306,63 @@ class GatewayServer(
 		}
 	}
 
+	private fun Routing.toolRoutes() {
+		get("/api/tools") {
+			call.requireAuth() ?: return@get
+			if (toolRegistry == null) {
+				call.respond(emptyList<Any>())
+				return@get
+			}
+			call.respond(toolRegistry.listTools())
+		}
+
+		post("/api/tools/execute") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (toolRegistry == null) {
+				call.respond(HttpStatusCode.ServiceUnavailable, ErrorResponse("Tool execution engine is not enabled."))
+				return@post
+			}
+			val req = call.receiveBounded<ToolExecutionRequest>() ?: return@post
+			val result = toolRegistry.execute(req)
+			call.respond(result)
+		}
+
+		get("/api/canvas") {
+			call.requireAuth() ?: return@get
+			if (canvasTool == null) {
+				call.respond(emptyList<Any>())
+				return@get
+			}
+			call.respond(canvasTool.getItems())
+		}
+
+		get("/api/canvas/{id}") {
+			call.requireAuth() ?: return@get
+			val id = call.parameters["id"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing canvas item ID."))
+				return@get
+			}
+			if (canvasTool == null) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Canvas not available."))
+				return@get
+			}
+			val item = canvasTool.getItem(id)
+			if (item == null) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Canvas item not found."))
+				return@get
+			}
+			call.respond(item)
+		}
+	}
+
 	private suspend fun ApplicationCall.requireAuth(): DashboardSession? {
-		val header = request.header("Authorization")
-		if (header == null || !header.startsWith("Bearer ")) {
+		// Read session token from HttpOnly cookie
+		val token = request.cookies["session_token"]
+		if (token.isNullOrBlank()) {
 			respond(HttpStatusCode.Unauthorized, ErrorResponse("Authentication required."))
 			return null
 		}
-		val token = header.removePrefix("Bearer ")
 		val session = sessionManager.validateSession(token)
 		if (session == null) {
 			respond(HttpStatusCode.Unauthorized, ErrorResponse("Invalid or expired session."))
@@ -314,32 +380,61 @@ class GatewayServer(
 		return true
 	}
 
-	private suspend inline fun <reified T : Any> ApplicationCall.receiveSanitized(): T? {
-		val contentLength = request.header("Content-Length")?.toLongOrNull()
-		if (contentLength != null && contentLength > maxInputBytes) {
-			respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("Request body exceeds maximum size of ${securityConfig.maxInputSizeMb} MB."))
-			return null
-		}
+	private suspend inline fun <reified T : Any> ApplicationCall.receiveBounded(): T? {
+		// Read raw bytes with a hard limit to prevent oversized payloads regardless of Content-Length header
 		return try {
-			receive<T>()
+			val channel = receiveChannel()
+			val buffer = ByteArray(maxInputBytes.toInt() + 1)
+			var totalRead = 0
+			while (totalRead <= maxInputBytes) {
+				val read = channel.readAvailable(buffer, totalRead, buffer.size - totalRead)
+				if (read == -1) break
+				totalRead += read
+			}
+			if (totalRead > maxInputBytes) {
+				respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("Request body exceeds maximum size of ${securityConfig.maxInputSizeMb} MB."))
+				return null
+			}
+			val jsonString = buffer.decodeToString(0, totalRead)
+			Json.decodeFromString<T>(jsonString)
 		} catch (e: Exception) {
 			respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid request body."))
 			null
 		}
 	}
 
-	private fun sanitizeInput(input: String): String {
-		return input
-			.replace("&", "&amp;")
-			.replace("<", "&lt;")
-			.replace(">", "&gt;")
-			.replace("\"", "&quot;")
-			.replace("'", "&#x27;")
-			.trim()
+	private fun isValidUsername(username: String): Boolean {
+		return username.matches(Regex("^[a-zA-Z0-9_-]{3,32}$"))
 	}
 
-	private fun buildCsrfCookie(csrfToken: String): String {
+	private fun ApplicationCall.setSessionCookies(session: DashboardSession) {
 		val secure = if (!isLocalhost) "; Secure" else ""
-		return "csrf_token=$csrfToken; Path=/; HttpOnly; SameSite=Strict$secure"
+		// HttpOnly session cookie — not accessible to JS
+		response.header("Set-Cookie", "session_token=${session.token}; Path=/; HttpOnly; SameSite=Strict$secure")
+		// Readable CSRF cookie — JS reads this for double-submit pattern
+		response.cookies.append(
+			Cookie(
+				name = "csrf_token",
+				value = session.csrfToken,
+				path = "/",
+				secure = !isLocalhost,
+				extensions = mapOf("SameSite" to "Strict")
+			)
+		)
+	}
+
+	private fun ApplicationCall.clearSessionCookies() {
+		val secure = if (!isLocalhost) "; Secure" else ""
+		response.header("Set-Cookie", "session_token=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0$secure")
+		response.cookies.append(
+			Cookie(
+				name = "csrf_token",
+				value = "",
+				path = "/",
+				maxAge = 0,
+				secure = !isLocalhost,
+				extensions = mapOf("SameSite" to "Strict")
+			)
+		)
 	}
 }
