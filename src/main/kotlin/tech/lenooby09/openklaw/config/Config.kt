@@ -11,7 +11,8 @@ data class AppConfig(
 	val tools: ToolsConfig = ToolsConfig(),
 	val memory: MemoryConfig = MemoryConfig(),
 	val messaging: MessagingConfig = MessagingConfig(),
-	val scheduler: SchedulerConfig = SchedulerConfig()
+	val scheduler: SchedulerConfig = SchedulerConfig(),
+	val skills: SkillsConfig = SkillsConfig()
 )
 
 @Serializable
@@ -214,4 +215,19 @@ data class GitRepoConfig(
 	val watchBuild: Boolean = true,
 	val watchCommits: Boolean = true,
 	val notifyUser: String = ""
+)
+
+// --- Phase 6: Skills Platform & Extensibility ---
+
+@Serializable
+data class SkillsConfig(
+	val enabled: Boolean = true,
+	val dataDir: String = "data",
+	val workspaceSkillsDir: String = "skills",
+	val maxSkills: Int = 200,
+	val autoApproveWorkspaceSkills: Boolean = false,
+	val registryUrl: String = "https://registry.openklaw.dev/api/v1",
+	val registryAllowedHosts: List<String> = listOf("registry.openklaw.dev"),
+	val selfImprovementEnabled: Boolean = false,
+	val maxSkillContextChars: Int = 50_000
 )

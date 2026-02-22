@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.llm.LlmMessage
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
 import tech.lenooby09.openklaw.memory.MemoryManager
+import tech.lenooby09.openklaw.skills.SkillManager
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.tools.ToolResult
@@ -64,6 +65,7 @@ class AgentLoop(
 	private val orchestrator: LlmOrchestrator,
 	private val toolRegistry: ToolRegistry? = null,
 	private val memoryManager: MemoryManager? = null,
+	private val skillManager: SkillManager? = null,
 	private val conversationsDir: File = File("data/conversations")
 ) {
 	private val logger = LoggerFactory.getLogger(AgentLoop::class.java)
@@ -99,7 +101,9 @@ class AgentLoop(
 			memoryManager?.searchRelevantMemory(userQuery) ?: ""
 		} else ""
 
-		return base + toolSection + memoryContext + relevantMemory
+		val skillsContext = skillManager?.buildSkillsContext() ?: ""
+
+		return base + toolSection + memoryContext + relevantMemory + skillsContext
 	}
 
 	/**

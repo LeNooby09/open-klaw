@@ -11,6 +11,7 @@ import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.messaging.*
 import tech.lenooby09.openklaw.scheduler.*
 import tech.lenooby09.openklaw.session.SessionManager
+import tech.lenooby09.openklaw.skills.*
 import tech.lenooby09.openklaw.tools.*
 
 fun main(args: Array<String>) {
@@ -96,14 +97,29 @@ fun main(args: Array<String>) {
 	toolRegistry.register(browserTool)
 	toolRegistry.register(canvasTool)
 
-	logger.info("Tool execution engine initialized — ${toolRegistry.getToolCount()} tools registered")
+	logger.info("Tool execution engine initialized — ${toolRegistry.getToolCount()} built-in tools registered")
 
 	// Initialize Memory System
 	val memoryManager = MemoryManager(config.memory)
 	memoryManager.initialize()
 	logger.info("Persistent memory system initialized (dataDir=${config.memory.dataDir})")
 
-	val agentLoop = AgentLoop(orchestrator, toolRegistry, memoryManager)
+	// Initialize Phase 6: Skills Platform & Extensibility
+	val skillsConfig = config.skills
+	val skillManager = SkillManager(skillsConfig)
+	skillManager.initialize()
+
+	val skillRegistryClient = SkillRegistryClient(skillsConfig, skillManager)
+
+	// Register skill_writer tool so the agent can create skills autonomously
+	if (skillsConfig.selfImprovementEnabled) {
+		val skillWriterTool = SkillWriterTool(skillsConfig, skillManager)
+		toolRegistry.register(skillWriterTool)
+	}
+
+	logger.info("Phase 6 skills platform initialized — ${skillManager.getSkillCount()} skills loaded, ${toolRegistry.getToolCount()} tools registered")
+
+	val agentLoop = AgentLoop(orchestrator, toolRegistry, memoryManager, skillManager)
 
 	// Initialize Messaging & Transport Integrations (Phase 4)
 	val messagingConfig = config.messaging
@@ -198,7 +214,7 @@ fun main(args: Array<String>) {
 
 	logger.info("Phase 5 automation initialized — heartbeat=${schedulerConfig.heartbeatEnabled}, cron=${schedulerConfig.cronEnabled}, webhooks=${schedulerConfig.webhookTriggersEnabled}, git=${schedulerConfig.gitMonitorEnabled}")
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter, webhookTriggerManager)
+	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter, webhookTriggerManager, skillManager, skillRegistryClient)
 
 	// Register periodic cleanup callbacks
 	sessionManager.onCleanup { gateway.cleanupRateLimiter() }

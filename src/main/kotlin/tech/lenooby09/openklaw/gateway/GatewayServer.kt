@@ -26,6 +26,9 @@ import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.messaging.ChannelRouter
 import tech.lenooby09.openklaw.scheduler.WebhookTriggerManager
+import tech.lenooby09.openklaw.skills.SkillManager
+import tech.lenooby09.openklaw.skills.SkillRegistryClient
+import tech.lenooby09.openklaw.skills.SkillSource
 import tech.lenooby09.openklaw.web.DashboardHtml
 
 class GatewayServer(
@@ -38,7 +41,9 @@ class GatewayServer(
 	private val canvasTool: CanvasTool? = null,
 	private val memoryManager: MemoryManager? = null,
 	private val channelRouter: ChannelRouter? = null,
-	private val webhookTriggerManager: WebhookTriggerManager? = null
+	private val webhookTriggerManager: WebhookTriggerManager? = null,
+	private val skillManager: SkillManager? = null,
+	private val skillRegistryClient: SkillRegistryClient? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -90,6 +95,7 @@ class GatewayServer(
 				messagingRoutes()
 				webhookTriggerManager?.installRoutes(this, maxInputBytes)
 				webhookListRoute()
+				skillRoutes()
 			}
 		}.start(wait = false)
 
@@ -521,6 +527,203 @@ class GatewayServer(
 				)
 			} ?: emptyList()
 			call.respond(triggerList)
+		}
+	}
+
+	@kotlinx.serialization.Serializable
+	private data class SkillActionRequest(val skillId: String)
+
+	@kotlinx.serialization.Serializable
+	private data class SkillInstallRequest(val content: String, val source: String = "WORKSPACE")
+
+	@kotlinx.serialization.Serializable
+	private data class RegistrySearchRequest(val query: String, val page: Int = 1)
+
+	@kotlinx.serialization.Serializable
+	private data class RegistryInstallRequest(val skillId: String)
+
+	private fun Routing.skillRoutes() {
+		// List all skills
+		get("/api/skills") {
+			call.requireAuth() ?: return@get
+			if (skillManager == null) {
+				call.respond(emptyList<Any>())
+				return@get
+			}
+			call.respond(skillManager.getAllSkills())
+		}
+
+		// Get a specific skill
+		get("/api/skills/{id}") {
+			call.requireAuth() ?: return@get
+			val id = call.parameters["id"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing skill ID."))
+				return@get
+			}
+			val skill = skillManager?.getSkill(id)
+			if (skill == null) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Skill not found."))
+				return@get
+			}
+			call.respond(skill)
+		}
+
+		// Get pending skills (admin)
+		get("/api/skills/pending") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(skillManager?.getPendingSkills() ?: emptyList())
+		}
+
+		// Approve a pending skill (admin)
+		post("/api/skills/approve") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
+			if (skillManager?.approveSkill(req.skillId) == true) {
+				call.respond(MessageResponse("Skill '${req.skillId}' approved."))
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Could not approve skill. It may not exist or is not in PENDING state."))
+			}
+		}
+
+		// Reject a pending skill (admin)
+		post("/api/skills/reject") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
+			if (skillManager?.rejectSkill(req.skillId) == true) {
+				call.respond(MessageResponse("Skill '${req.skillId}' rejected."))
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Could not reject skill."))
+			}
+		}
+
+		// Disable an active skill (admin)
+		post("/api/skills/disable") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
+			if (skillManager?.disableSkill(req.skillId) == true) {
+				call.respond(MessageResponse("Skill '${req.skillId}' disabled."))
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Could not disable skill."))
+			}
+		}
+
+		// Enable a disabled/rejected skill (admin)
+		post("/api/skills/enable") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
+			if (skillManager?.enableSkill(req.skillId) == true) {
+				call.respond(MessageResponse("Skill '${req.skillId}' enabled."))
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Could not enable skill."))
+			}
+		}
+
+		// Remove a non-bundled skill (admin)
+		delete("/api/skills/{id}") {
+			val session = call.requireAuth() ?: return@delete
+			if (!call.verifyCsrf(session)) return@delete
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@delete
+			}
+			val id = call.parameters["id"] ?: run {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing skill ID."))
+				return@delete
+			}
+			if (skillManager?.removeSkill(id) == true) {
+				call.respond(MessageResponse("Skill '$id' removed."))
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Could not remove skill. Bundled skills cannot be removed."))
+			}
+		}
+
+		// Install a skill from content (admin)
+		post("/api/skills/install") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillInstallRequest>() ?: return@post
+			val source = try { SkillSource.valueOf(req.source.uppercase()) } catch (_: Exception) { SkillSource.WORKSPACE }
+			val installed = skillManager?.installSkill(req.content, source, autoApprove = true)
+			if (installed != null) {
+				call.respond(installed)
+			} else {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Failed to install skill. Check content format and skill limit."))
+			}
+		}
+
+		// Search local skills
+		get("/api/skills/search") {
+			call.requireAuth() ?: return@get
+			val query = call.request.queryParameters["q"] ?: ""
+			call.respond(skillManager?.searchSkills(query) ?: emptyList())
+		}
+
+		// Registry: search
+		post("/api/skills/registry/search") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			val req = call.receiveBounded<RegistrySearchRequest>() ?: return@post
+			val result = skillRegistryClient?.search(req.query, req.page) ?: tech.lenooby09.openklaw.skills.SkillRegistryClient.SearchResult()
+			call.respond(result)
+		}
+
+		// Registry: install by ID
+		post("/api/skills/registry/install") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<RegistryInstallRequest>() ?: return@post
+			val installed = skillRegistryClient?.install(req.skillId)
+			if (installed != null) {
+				call.respond(installed)
+			} else {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Skill not found in registry."))
+			}
+		}
+
+		// Registry: publish a local skill (admin)
+		post("/api/skills/registry/publish") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
+			val result = skillRegistryClient?.publish(req.skillId)
+				?: tech.lenooby09.openklaw.skills.SkillRegistryClient.PublishResult(false, "Registry client not available.")
+			call.respond(result)
 		}
 	}
 
