@@ -10,7 +10,8 @@ data class AppConfig(
 	val security: SecurityConfig = SecurityConfig(),
 	val tools: ToolsConfig = ToolsConfig(),
 	val memory: MemoryConfig = MemoryConfig(),
-	val messaging: MessagingConfig = MessagingConfig()
+	val messaging: MessagingConfig = MessagingConfig(),
+	val scheduler: SchedulerConfig = SchedulerConfig()
 )
 
 @Serializable
@@ -175,3 +176,42 @@ data class EmailConfig(
 ) {
 	val password: String get() = if (passwordEnv.isNotEmpty()) System.getenv(passwordEnv) ?: "" else ""
 }
+
+// --- Phase 5: Proactive Automation & Scheduling ---
+
+@Serializable
+data class SchedulerConfig(
+	val heartbeatEnabled: Boolean = true,
+	val heartbeatFile: String = "HEARTBEAT.md",
+	val heartbeatCheckIntervalMinutes: Int = 1,
+	val cronEnabled: Boolean = true,
+	val maxCronJobs: Int = 100,
+	val webhookTriggersEnabled: Boolean = true,
+	val maxWebhookTriggers: Int = 50,
+	val webhookSecretEnv: String = "OPENKLAW_WEBHOOK_SECRET",
+	val webhookRateLimitMaxPerMinute: Int = 30,
+	val gitMonitorEnabled: Boolean = false,
+	val gitPollIntervalMinutes: Int = 5,
+	val gitCommandTimeoutSeconds: Long = 30,
+	val gitAllowedBaseDirs: List<String> = listOf("/workspace"),
+	val gitMaxFileReadBytes: Long = 1024 * 1024,
+	val gitRepositories: List<GitRepoConfig> = emptyList(),
+	val notificationsEnabled: Boolean = true,
+	val defaultNotificationChannel: String = "WEBCHAT",
+	val maxConcurrentSchedulerTasks: Int = 4,
+	val schedulerRestrictedTools: List<String> = listOf("shell", "filesystem"),
+	val schedulerSafeTools: List<String> = listOf("browser", "canvas")
+) {
+	val webhookSecret: String get() = if (webhookSecretEnv.isNotEmpty()) System.getenv(webhookSecretEnv) ?: "" else ""
+}
+
+@Serializable
+data class GitRepoConfig(
+	val name: String,
+	val path: String = "",
+	val remoteUrl: String = "",
+	val branch: String = "main",
+	val watchBuild: Boolean = true,
+	val watchCommits: Boolean = true,
+	val notifyUser: String = ""
+)

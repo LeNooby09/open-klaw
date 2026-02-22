@@ -12,6 +12,9 @@ import kotlin.test.assertTrue
 
 class ConversationLoggerTest {
 
+	private val sessionId1 = "00000000-0000-0000-0000-000000000001"
+	private val sessionId2 = "00000000-0000-0000-0000-000000000002"
+
 	private lateinit var tempDir: File
 	private lateinit var logger: ConversationLogger
 
@@ -30,15 +33,15 @@ class ConversationLoggerTest {
 	@Test
 	fun `logMessage creates JSONL file with correct content`() {
 		val message = ChatMessage(id = "msg-1", role = "user", content = "Hello agent", timestamp = 1000L)
-		logger.logMessage("session-1", "alice", message)
+		logger.logMessage(sessionId1, "alice", message)
 
 		val dates = logger.listLogDates()
 		assertTrue(dates.isNotEmpty(), "Should have at least one date directory")
 
 		val sessions = logger.listSessionLogs(dates.first())
-		assertTrue(sessions.contains("session-1"), "Should contain session-1")
+		assertTrue(sessions.contains(sessionId1), "Should contain $sessionId1")
 
-		val entries = logger.readSessionLog(dates.first(), "session-1")
+		val entries = logger.readSessionLog(dates.first(), sessionId1)
 		assertEquals(1, entries.size)
 		assertEquals("user", entries[0]["role"]?.jsonPrimitive?.content)
 		assertEquals("Hello agent", entries[0]["content"]?.jsonPrimitive?.content)
@@ -49,11 +52,11 @@ class ConversationLoggerTest {
 	fun `logMessage appends multiple messages to same session`() {
 		val msg1 = ChatMessage(id = "msg-1", role = "user", content = "Hello", timestamp = 1000L)
 		val msg2 = ChatMessage(id = "msg-2", role = "assistant", content = "Hi there!", timestamp = 2000L, model = "gpt-4", provider = "openai")
-		logger.logMessage("session-1", "bob", msg1)
-		logger.logMessage("session-1", "bob", msg2)
+		logger.logMessage(sessionId1, "bob", msg1)
+		logger.logMessage(sessionId1, "bob", msg2)
 
 		val dates = logger.listLogDates()
-		val entries = logger.readSessionLog(dates.first(), "session-1")
+		val entries = logger.readSessionLog(dates.first(), sessionId1)
 		assertEquals(2, entries.size)
 		assertEquals("Hello", entries[0]["content"]?.jsonPrimitive?.content)
 		assertEquals("Hi there!", entries[1]["content"]?.jsonPrimitive?.content)
@@ -64,7 +67,7 @@ class ConversationLoggerTest {
 	fun `logMessage does nothing when logging disabled`() {
 		val disabledLogger = ConversationLogger(MemoryConfig(dataDir = tempDir.absolutePath, conversationLoggingEnabled = false))
 		val message = ChatMessage(id = "msg-1", role = "user", content = "Hello")
-		disabledLogger.logMessage("session-1", "alice", message)
+		disabledLogger.logMessage(sessionId1, "alice", message)
 
 		assertTrue(logger.listLogDates().isEmpty(), "No logs should be created when disabled")
 	}
@@ -73,8 +76,8 @@ class ConversationLoggerTest {
 	fun `readAllLogs returns entries across dates and sessions`() {
 		val msg1 = ChatMessage(id = "msg-1", role = "user", content = "First message", timestamp = 1000L)
 		val msg2 = ChatMessage(id = "msg-2", role = "assistant", content = "Second message", timestamp = 2000L)
-		logger.logMessage("session-1", "alice", msg1)
-		logger.logMessage("session-2", "bob", msg2)
+		logger.logMessage(sessionId1, "alice", msg1)
+		logger.logMessage(sessionId2, "bob", msg2)
 
 		val allLogs = logger.readAllLogs()
 		assertEquals(2, allLogs.size)
@@ -88,7 +91,7 @@ class ConversationLoggerTest {
 
 	@Test
 	fun `readSessionLog returns empty for nonexistent session`() {
-		val entries = logger.readSessionLog("2099-01-01", "nonexistent")
+		val entries = logger.readSessionLog("2099-01-01", "00000000-0000-0000-0000-000000000099")
 		assertTrue(entries.isEmpty())
 	}
 }

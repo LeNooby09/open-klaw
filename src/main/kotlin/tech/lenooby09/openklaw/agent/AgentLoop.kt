@@ -82,14 +82,18 @@ class AgentLoop(
 		fun isValidSessionId(id: String): Boolean = SAFE_UUID_REGEX.matches(id)
 	}
 
-	private fun buildSystemPrompt(username: String, userQuery: String = ""): String {
+	private fun buildSystemPrompt(username: String, userQuery: String = "", allowedTools: Set<String>? = null): String {
 		val base = """
 			You are Open-Klaw, an AI assistant running as a local agent. You are helpful, concise, and 
 			thoughtful. You can assist with coding, analysis, writing, and general questions.
 			When you don't know something, say so honestly.
 		""".trimIndent()
 
-		val toolSection = toolRegistry?.buildToolDescriptions() ?: ""
+		val toolSection = if (allowedTools != null) {
+			toolRegistry?.buildToolDescriptions(allowedTools) ?: ""
+		} else {
+			toolRegistry?.buildToolDescriptions() ?: ""
+		}
 		val memoryContext = memoryManager?.buildMemoryContext(username) ?: ""
 		val relevantMemory = if (userQuery.isNotEmpty()) {
 			memoryManager?.searchRelevantMemory(userQuery) ?: ""
@@ -98,7 +102,11 @@ class AgentLoop(
 		return base + toolSection + memoryContext + relevantMemory
 	}
 
-	suspend fun chat(username: String, request: ChatRequest): ChatResponse {
+	/**
+	 * @param allowedTools If non-null, only these tool names may be executed. Others are blocked.
+	 *                     Pass null (default) for unrestricted tool access.
+	 */
+	suspend fun chat(username: String, request: ChatRequest, allowedTools: Set<String>? = null): ChatResponse {
 		val session = resolveSession(username, request.sessionId)
 
 		val userMessage = ChatMessage(role = "user", content = request.message)
@@ -108,7 +116,7 @@ class AgentLoop(
 
 		logger.info("Agent thinking for user=$username session=${session.id}")
 
-		val assistantMessage = runAgentLoop(session)
+		val assistantMessage = runAgentLoop(session, allowedTools)
 		memoryManager?.logMessage(session.id, username, assistantMessage)
 
 		return ChatResponse(
@@ -285,11 +293,11 @@ class AgentLoop(
 		}
 	}
 
-	private suspend fun runAgentLoop(session: ConversationSession): ChatMessage {
+	private suspend fun runAgentLoop(session: ConversationSession, allowedTools: Set<String>? = null): ChatMessage {
 		var iteration = 0
 
 		while (iteration <= MAX_TOOL_ITERATIONS) {
-			val llmMessages = buildLlmMessages(session)
+			val llmMessages = buildLlmMessages(session, allowedTools = allowedTools)
 			val llmResponse = orchestrator.complete(llmMessages)
 
 			if (toolRegistry == null) {
@@ -316,6 +324,19 @@ class AgentLoop(
 				session.messages.add(msg)
 				session.lastActiveAt = System.currentTimeMillis()
 				return msg
+			}
+
+			// Enforce tool restrictions if allowedTools is specified
+			if (allowedTools != null && toolCall.toolName !in allowedTools) {
+				logger.warn("Tool '${toolCall.toolName}' blocked by scheduler tool restrictions")
+				val blockedResult = ChatMessage(
+					role = "tool",
+					content = "Tool '${toolCall.toolName}' is not permitted in this automated context. Allowed tools: ${allowedTools.joinToString(", ")}"
+				)
+				session.messages.add(ChatMessage(role = "assistant", content = llmResponse.content, model = llmResponse.model, provider = llmResponse.provider))
+				session.messages.add(blockedResult)
+				iteration++
+				continue
 			}
 
 			iteration++
@@ -392,8 +413,8 @@ class AgentLoop(
 		return session
 	}
 
-	private fun buildLlmMessages(session: ConversationSession, userQuery: String = ""): List<LlmMessage> {
-		val prompt = buildSystemPrompt(session.username, userQuery)
+	private fun buildLlmMessages(session: ConversationSession, userQuery: String = "", allowedTools: Set<String>? = null): List<LlmMessage> {
+		val prompt = buildSystemPrompt(session.username, userQuery, allowedTools)
 		val messages = mutableListOf(LlmMessage("system", prompt))
 		val history = session.messages.takeLast(50)
 		history.forEach {

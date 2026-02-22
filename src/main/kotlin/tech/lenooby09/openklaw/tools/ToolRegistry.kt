@@ -94,9 +94,10 @@ class ToolRegistry {
 
 	/**
 	 * Build a system prompt section describing all enabled tools to the LLM.
+	 * @param allowedTools If non-null, only include tools whose names are in this set.
 	 */
-	fun buildToolDescriptions(): String {
-		val enabledTools = tools.values.filter { it.enabled }
+	fun buildToolDescriptions(allowedTools: Set<String>? = null): String {
+		val enabledTools = tools.values.filter { it.enabled && (allowedTools == null || it.name in allowedTools) }
 		if (enabledTools.isEmpty()) return ""
 
 		return buildString {

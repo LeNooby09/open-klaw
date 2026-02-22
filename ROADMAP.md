@@ -66,11 +66,12 @@ Meet users where they are: chat apps, email, and beyond.
 
 Move from reactive assistant to proactive agent.
 
-- [ ] **Heartbeat System (`HEARTBEAT.md`)** — Periodic wake-up schedule so the agent can act without being prompted.
-- [ ] **Cron Jobs** — Schedule recurring tasks (e.g., daily summaries, build monitoring).
-- [ ] **Webhook Triggers** — Expose HTTP endpoints that trigger agent workflows from external events.
-- [ ] **Git/CI Monitoring** — Watch repositories, trigger builds, parse error logs, propose fixes.
-- [ ] **Proactive Notifications** — Alert users via their preferred channel when something needs attention.
+- [x] **Heartbeat System (`HEARTBEAT.md`)** — Persistent Markdown file (`HEARTBEAT.md`) defining periodic wake-up rules with a human-readable DSL (`every Nm`, `hourly`, `daily HH:mm`, `weekday HH:mm`, `weekend HH:mm`). Parsed at startup with hot-reload support. Dedicated bounded `ThreadPoolExecutor` for task execution (prevents ForkJoinPool starvation). Auto-creates default file with owner-only POSIX permissions on first run. SHA-256 collision-resistant rule IDs. Day-of-week filtering for weekday/weekend rules with configurable check interval.
+- [x] **Cron Jobs** — Simplified 5-field cron expression engine (`minute hour dayOfMonth month dayOfWeek`) supporting wildcards (`*`), exact values, step intervals (`start/step`), and comma-separated lists with **range validation** (e.g., minutes 0–59, hours 0–23, step > 0). Runtime job CRUD with configurable max job limit, job ID format validation (`^[a-zA-Z0-9_-]{1,64}$`), and username validation (`^(system|[a-zA-Z0-9_-]{3,32})$`). `createdByAdmin` flag determines tool access policy. Dedicated bounded executor with per-minute scheduler and double-fire prevention.
+- [x] **Webhook Triggers** — REST endpoints at `/api/webhooks/{triggerId}` that accept POST requests from external services. HMAC-SHA256 signature verification via `X-Webhook-Signature` header is **mandatory** — routes refuse to install without a configured secret (`OPENKLAW_WEBHOOK_SECRET`). Bounded body reading (hard byte limit), per-IP rate limiting with exponential backoff, and dedicated bounded executor. `GET /api/webhooks` listing moved behind admin authentication. External payloads wrapped in `[BEGIN_DATA]/[END_DATA]` markers for prompt injection mitigation. `createdByAdmin` flag controls tool access.
+- [x] **Git/CI Monitoring** — Background polling of configured Git repositories via `git` CLI with **configurable process timeout** (`waitFor` with forced kill on timeout). Repo paths validated against allowed base directories (`gitAllowedBaseDirs`) to prevent arbitrary filesystem access. Bounded file reads (`gitMaxFileReadBytes`) prevent memory exhaustion from large log files. Dedicated bounded executor. Detects new commits via `git rev-parse HEAD` comparison and build status via `build.log`/`error.log` scanning with Gradle test report parsing. Git event details wrapped in `[BEGIN_DATA]/[END_DATA]` markers.
+- [x] **Proactive Notifications** — Multi-channel notification delivery with per-user channel preferences, automatic fallback through linked channel accounts, and configurable default channel. Notification formatting with priority-based icons (ℹ️/🔔/⚠️/🚨). Broadcast to all registered users. Thread-safe bounded notification history (1000 entries, `ReentrantLock`-guarded `ArrayList` replacing race-prone `CopyOnWriteArrayList`) with username filtering and timestamp-descending retrieval.
+- [x] **Scheduler Security Hardening** — Admin-authorized tool access: heartbeat tasks (from admin-managed `HEARTBEAT.md`) and admin-created cron/webhook jobs get full tool access; non-admin automated tasks are restricted to safe tools only (configurable `schedulerRestrictedTools`/`schedulerSafeTools`). `AgentLoop.chat()` accepts optional `allowedTools` parameter that filters both tool descriptions in system prompts and blocks disallowed tool calls at execution time. All scheduler components use dedicated bounded `ThreadPoolExecutor` instead of `ForkJoinPool.commonPool()` to prevent JVM-wide thread starvation.
 
 ---
 
@@ -92,7 +93,8 @@ Make the agent infinitely extensible through a skill/plugin ecosystem.
 Production-grade reliability and safety guardrails.
 
 - [ ] **Lane Queue System** — Serial task execution per session to prevent race conditions and state drift.
-- [ ] **Permission Controls** — Fine-grained permissions for tools (file access, shell, network, etc.).
+- [x] **Permission Controls** — Fine-grained tool permissions for scheduler-initiated agent calls. Configurable `schedulerRestrictedTools` (default: shell, filesystem) and `schedulerSafeTools` lists. Admin-created tasks get unrestricted access; non-admin automated tasks are limited to safe tools only. Enforced at both prompt-level (tool descriptions filtered) and execution-level (blocked calls return rejection message to LLM).
+- [ ] **Fine-Grained User Permissions** — Per-user tool access controls for interactive sessions.
 - [ ] **Retry Policy** — Configurable retry logic for failed LLM calls and tool executions.
 - [ ] **Health Checks & Doctor Diagnostics** — Self-diagnosis tools to detect misconfiguration or degraded state.
 - [ ] **Logging & Observability** — Structured logging, usage tracking, and presence/typing indicators.

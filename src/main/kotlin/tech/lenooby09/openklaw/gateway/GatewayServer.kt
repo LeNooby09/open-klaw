@@ -25,6 +25,7 @@ import tech.lenooby09.openklaw.tools.CanvasTool
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.messaging.ChannelRouter
+import tech.lenooby09.openklaw.scheduler.WebhookTriggerManager
 import tech.lenooby09.openklaw.web.DashboardHtml
 
 class GatewayServer(
@@ -36,7 +37,8 @@ class GatewayServer(
 	private val toolRegistry: ToolRegistry? = null,
 	private val canvasTool: CanvasTool? = null,
 	private val memoryManager: MemoryManager? = null,
-	private val channelRouter: ChannelRouter? = null
+	private val channelRouter: ChannelRouter? = null,
+	private val webhookTriggerManager: WebhookTriggerManager? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -86,6 +88,8 @@ class GatewayServer(
 				storageBudgetRoutes()
 				toolRoutes()
 				messagingRoutes()
+				webhookTriggerManager?.installRoutes(this, maxInputBytes)
+				webhookListRoute()
 			}
 		}.start(wait = false)
 
@@ -498,6 +502,26 @@ class GatewayServer(
 
 	fun cleanupWebhookRateLimiter() {
 		webhookRateLimiter.cleanup()
+		webhookTriggerManager?.cleanupRateLimiter()
+	}
+
+	private fun Routing.webhookListRoute() {
+		get("/api/webhooks") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			val triggerList = webhookTriggerManager?.listTriggers()?.map { t ->
+				mapOf(
+					"id" to t.id,
+					"name" to t.name,
+					"enabled" to t.enabled.toString(),
+					"url" to "/api/webhooks/${t.id}"
+				)
+			} ?: emptyList()
+			call.respond(triggerList)
+		}
 	}
 
 	private val validChannelTypes = setOf("DISCORD", "TELEGRAM", "WHATSAPP", "SLACK", "EMAIL", "WEBCHAT")
