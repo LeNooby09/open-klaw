@@ -88,6 +88,11 @@ else
 		exit 1
 	fi
 
+	# Ensure config.yaml exists so the bind mount works (Docker would create a directory otherwise)
+	if [ ! -f "$SCRIPT_DIR/config.yaml" ]; then
+		touch "$SCRIPT_DIR/config.yaml"
+	fi
+
 	if [ "$FORCE_BUILD" = true ]; then
 		echo "Building Docker image..."
 		docker compose build

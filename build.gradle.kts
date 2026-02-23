@@ -34,6 +34,9 @@ dependencies {
     // Jakarta Mail for SMTP/IMAP email support (successor to javax.mail)
     implementation("org.eclipse.angus:angus-mail:2.0.3")
 
+    // YAML configuration file support (kotlinx.serialization format)
+    implementation("com.charleskorn.kaml:kaml:0.77.0")
+
     // BCrypt for password hashing
     implementation("at.favre.lib:bcrypt:0.10.2")
 

@@ -8,6 +8,8 @@ services:
       # Persist workspace and conversation data between restarts
       - openklaw-workspace:/workspace
       - openklaw-data:/data
+      # Bind-mount config file so edits on host are reflected in container
+      - ./config.yaml:/workspace/config.yaml
     environment:
       - OPENKLAW_SANDBOXED=true
       - OPENKLAW_PORT=8080

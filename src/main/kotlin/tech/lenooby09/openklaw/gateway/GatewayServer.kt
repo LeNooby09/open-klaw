@@ -7,10 +7,10 @@ import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
-import io.ktor.server.websocket.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -18,21 +18,21 @@ import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
 import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
-import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.health.HealthCheckManager
+import tech.lenooby09.openklaw.memory.MemoryManager
+import tech.lenooby09.openklaw.messaging.ChannelRouter
 import tech.lenooby09.openklaw.observability.UsageTracker
+import tech.lenooby09.openklaw.scheduler.WebhookTriggerManager
 import tech.lenooby09.openklaw.security.RateLimiter
 import tech.lenooby09.openklaw.security.UserPermissionManager
 import tech.lenooby09.openklaw.security.UserToolPermissions
 import tech.lenooby09.openklaw.session.*
-import tech.lenooby09.openklaw.tools.CanvasTool
-import tech.lenooby09.openklaw.tools.ToolExecutionRequest
-import tech.lenooby09.openklaw.tools.ToolRegistry
-import tech.lenooby09.openklaw.messaging.ChannelRouter
-import tech.lenooby09.openklaw.scheduler.WebhookTriggerManager
 import tech.lenooby09.openklaw.skills.SkillManager
 import tech.lenooby09.openklaw.skills.SkillRegistryClient
 import tech.lenooby09.openklaw.skills.SkillSource
+import tech.lenooby09.openklaw.tools.CanvasTool
+import tech.lenooby09.openklaw.tools.ToolExecutionRequest
+import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.web.DashboardHtml
 
 class GatewayServer(
@@ -84,12 +84,6 @@ class GatewayServer(
 				call.response.header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
 				if (!isLocalhost) {
 					call.response.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-				}
-
-				if (!isLocalhost && call.request.local.scheme != "https") {
-					call.respond(HttpStatusCode.Forbidden, ErrorResponse("HTTPS required for non-localhost connections."))
-					finish()
-					return@intercept
 				}
 			}
 			routing {
@@ -703,7 +697,7 @@ class GatewayServer(
 			val session = call.requireAuth() ?: return@post
 			if (!call.verifyCsrf(session)) return@post
 			val req = call.receiveBounded<RegistrySearchRequest>() ?: return@post
-			val result = skillRegistryClient?.search(req.query, req.page) ?: tech.lenooby09.openklaw.skills.SkillRegistryClient.SearchResult()
+			val result = skillRegistryClient?.search(req.query, req.page) ?: SkillRegistryClient.SearchResult()
 			call.respond(result)
 		}
 
@@ -734,7 +728,7 @@ class GatewayServer(
 			}
 			val req = call.receiveBounded<SkillActionRequest>() ?: return@post
 			val result = skillRegistryClient?.publish(req.skillId)
-				?: tech.lenooby09.openklaw.skills.SkillRegistryClient.PublishResult(false, "Registry client not available.")
+				?: SkillRegistryClient.PublishResult(false, "Registry client not available.")
 			call.respond(result)
 		}
 	}

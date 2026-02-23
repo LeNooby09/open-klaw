@@ -19,7 +19,8 @@ data class AppConfig(
 data class GatewayConfig(
 	val enabled: Boolean = true,
 	val port: Int = 8080,
-	val bindAddress: String = "127.0.0.1"
+	val bindAddress: String = "127.0.0.1",
+	val trustProxy: Boolean = false
 )
 
 @Serializable

@@ -1,21 +1,23 @@
 package tech.lenooby09.openklaw
 
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
-import kotlinx.coroutines.runBlocking
-import tech.lenooby09.openklaw.config.*
+import tech.lenooby09.openklaw.config.ConfigLoader
 import tech.lenooby09.openklaw.gateway.GatewayServer
 import tech.lenooby09.openklaw.health.BuiltInHealthChecks
 import tech.lenooby09.openklaw.health.HealthCheckManager
-import tech.lenooby09.openklaw.security.UserPermissionManager
 import tech.lenooby09.openklaw.llm.LlmOrchestrator
-import tech.lenooby09.openklaw.observability.UsageTracker
 import tech.lenooby09.openklaw.memory.MemoryManager
 import tech.lenooby09.openklaw.messaging.*
+import tech.lenooby09.openklaw.observability.UsageTracker
 import tech.lenooby09.openklaw.scheduler.*
+import tech.lenooby09.openklaw.security.UserPermissionManager
 import tech.lenooby09.openklaw.session.SessionManager
-import tech.lenooby09.openklaw.skills.*
+import tech.lenooby09.openklaw.skills.SkillManager
+import tech.lenooby09.openklaw.skills.SkillRegistryClient
+import tech.lenooby09.openklaw.skills.SkillWriterTool
 import tech.lenooby09.openklaw.tools.*
 
 fun main(args: Array<String>) {
@@ -62,23 +64,34 @@ fun main(args: Array<String>) {
 		logger.info("Running in sandboxed container mode.")
 	}
 
-	val config = AppConfig(
-		gateway = GatewayConfig(
-			enabled = true,
-			port = System.getenv("OPENKLAW_PORT")?.toIntOrNull() ?: 8080,
-			bindAddress = System.getenv("OPENKLAW_BIND") ?: "127.0.0.1"
+	// Load configuration from YAML file (falls back to defaults if not found)
+	val configPath =
+		System.getenv("OPENKLAW_CONFIG") ?: args.firstOrNull { it.startsWith("--config=") }?.removePrefix("--config=")
+		?: "config.yaml"
+
+	// Handle --generate-config flag to produce a default config.yaml template
+	if (args.contains("--generate-config")) {
+		val outputPath = args.firstOrNull { it.startsWith("--config=") }?.removePrefix("--config=") ?: "config.yaml"
+		val outputFile = java.io.File(outputPath)
+		outputFile.writeText(ConfigLoader.generateDefault())
+		logger.info("Default configuration written to '${outputFile.absolutePath}'")
+		return
+	}
+
+	val baseConfig = ConfigLoader.load(configPath)
+
+	// Environment variables override YAML config for key deployment settings
+	val config = baseConfig.copy(
+		gateway = baseConfig.gateway.copy(
+			port = System.getenv("OPENKLAW_PORT")?.toIntOrNull() ?: baseConfig.gateway.port,
+			bindAddress = System.getenv("OPENKLAW_BIND") ?: baseConfig.gateway.bindAddress
 		),
-		llm = LlmConfig(
-			providers = emptyList(),
-			failoverEnabled = true
-		),
-		security = SecurityConfig(),
-		tools = ToolsConfig(
-			shellEnabled = System.getenv("OPENKLAW_TOOL_SHELL")?.toBoolean() ?: true,
-			fileSystemEnabled = System.getenv("OPENKLAW_TOOL_FILE")?.toBoolean() ?: true,
-			browserEnabled = System.getenv("OPENKLAW_TOOL_BROWSER")?.toBoolean() ?: true,
-			canvasEnabled = System.getenv("OPENKLAW_TOOL_CANVAS")?.toBoolean() ?: true,
-			fileSystemBaseDir = System.getenv("OPENKLAW_FILE_BASE_DIR") ?: "."
+		tools = baseConfig.tools.copy(
+			shellEnabled = System.getenv("OPENKLAW_TOOL_SHELL")?.toBoolean() ?: baseConfig.tools.shellEnabled,
+			fileSystemEnabled = System.getenv("OPENKLAW_TOOL_FILE")?.toBoolean() ?: baseConfig.tools.fileSystemEnabled,
+			browserEnabled = System.getenv("OPENKLAW_TOOL_BROWSER")?.toBoolean() ?: baseConfig.tools.browserEnabled,
+			canvasEnabled = System.getenv("OPENKLAW_TOOL_CANVAS")?.toBoolean() ?: baseConfig.tools.canvasEnabled,
+			fileSystemBaseDir = System.getenv("OPENKLAW_FILE_BASE_DIR") ?: baseConfig.tools.fileSystemBaseDir
 		)
 	)
 
