@@ -508,21 +508,29 @@
             document.getElementById('setupError').textContent = 'All fields are required.';
             return;
         }
-        const r = await fetch('/api/signup', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username: u, password: p, signupToken: t})
-        });
-        if (r.ok) {
-            const d = await r.json();
-            username = d.username;
-            isAdmin = d.isAdmin;
-            localStorage.setItem('username', username);
-            localStorage.setItem('isAdmin', String(isAdmin));
-            showDashboard();
-        } else {
-            const e = await r.json();
-            document.getElementById('setupError').textContent = e.error || 'Signup failed.';
+        try {
+            const r = await fetch('/api/signup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: u, password: p, signupToken: t})
+            });
+            if (r.ok) {
+                const d = await r.json();
+                username = d.username;
+                isAdmin = d.isAdmin;
+                localStorage.setItem('username', username);
+                localStorage.setItem('isAdmin', String(isAdmin));
+                showDashboard();
+            } else {
+                try {
+                    const e = await r.json();
+                    document.getElementById('setupError').textContent = e.error || 'Signup failed.';
+                } catch (_) {
+                    document.getElementById('setupError').textContent = 'Signup failed (status ' + r.status + ').';
+                }
+            }
+        } catch (err) {
+            document.getElementById('setupError').textContent = 'Network error: ' + err.message;
         }
     }
 

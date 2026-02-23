@@ -11,7 +11,6 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
-import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
@@ -124,7 +123,9 @@ class GatewayServer(
 
 	private fun Routing.authRoutes() {
 		post("/api/signup") {
+			logger.info("Signup request received")
 			if (sessionManager.hasUsers()) {
+				logger.info("Signup rejected: users already exist")
 				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Registration is closed. Users already exist."))
 				return@post
 			}
@@ -145,7 +146,9 @@ class GatewayServer(
 			if (session != null) {
 				call.setSessionCookies(session)
 				call.respond(LoginResponse(session.username, session.isAdmin))
+				logger.info("Signup completed successfully for user: ${req.username}")
 			} else {
+				logger.info("Signup failed: invalid signup token")
 				call.respond(HttpStatusCode.Unauthorized, ErrorResponse("Invalid signup token."))
 			}
 		}
@@ -926,22 +929,13 @@ class GatewayServer(
 	}
 
 	private suspend inline fun <reified T : Any> ApplicationCall.receiveBounded(): T? {
-		// Read raw bytes with a hard limit to prevent oversized payloads regardless of Content-Length header
 		return try {
-			val channel = receiveChannel()
-			val buffer = ByteArray(maxInputBytes.toInt() + 1)
-			var totalRead = 0
-			while (totalRead <= maxInputBytes) {
-				val read = channel.readAvailable(buffer, totalRead, buffer.size - totalRead)
-				if (read == -1) break
-				totalRead += read
-			}
-			if (totalRead > maxInputBytes) {
+			val text = receiveText()
+			if (text.toByteArray().size > maxInputBytes) {
 				respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("Request body exceeds maximum size of ${securityConfig.maxInputSizeMb} MB."))
 				return null
 			}
-			val jsonString = buffer.decodeToString(0, totalRead)
-			Json.decodeFromString<T>(jsonString)
+			Json.decodeFromString<T>(text)
 		} catch (e: Exception) {
 			respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid request body."))
 			null

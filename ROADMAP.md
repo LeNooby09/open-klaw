@@ -19,8 +19,8 @@ The foundation: a running agent that can receive a message, think, act, and resp
   localhost-only CORS with credentials support, login rate limiting with exponential backoff (atomic/thread-safe),
   two-cookie CSRF protection (HttpOnly session cookie + readable CSRF cookie for double-submit pattern via
   `X-CSRF-Token` header), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`,
-  `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), bounded request body reading (hard byte limit regardless of
-  Content-Length header) with configurable max payload size, username format validation (`^[a-zA-Z0-9_-]{3,32}$`),
+  `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), bounded request body reading via `receiveText()` with
+  configurable max payload size, username format validation (`^[a-zA-Z0-9_-]{3,32}$`),
   conversation session ownership verification with authorization checks on delete, periodic expired session cleanup with
   pluggable cleanup callbacks (rate limiter + idle conversation flushing), idle conversation archival to JSONL on disk,
   API keys loaded from environment variables (`apiKeyEnv`), user management APIs (create/delete users, change password,
