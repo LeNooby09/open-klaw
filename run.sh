@@ -57,9 +57,9 @@ done
 
 if [ "$BARE_METAL" = true ]; then
 	echo "╔══════════════════════════════════════════════════════════╗"
-	echo "║  ⚠  WARNING: Running in bare-metal mode.               ║"
-	echo "║  Shell and filesystem tools have UNRESTRICTED access    ║"
-	echo "║  to the host system. Use Docker for safer execution.    ║"
+	echo "║  ⚠  WARNING: Running in bare-metal mode.                 ║"
+	echo "║  Shell and filesystem tools have UNRESTRICTED access     ║"
+	echo "║  to the host system. Use Docker for safer execution.     ║"
 	echo "╚══════════════════════════════════════════════════════════╝"
 	echo ""
 
