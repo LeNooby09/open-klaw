@@ -11,7 +11,9 @@ The foundation: a running agent that can receive a message, think, act, and resp
 
 - [x] **Local Gateway Server** — Ktor CIO HTTP server with REST API (auth, stats, chat, conversations) and Bearer token auth. Serves a web dashboard SPA from an external HTML resource file (`/web/dashboard.html`) loaded at runtime.
 - [x] **Agent Loop** — Core think → act → observe cycle with conversation session management and context windowing (last 50 messages).
-- [x] **Model-Agnostic LLM Orchestrator** — Unified `LlmProvider` interface with 4 implementations: OpenAI, Anthropic, Ollama, and OpenRouter.
+- [x] **Model-Agnostic LLM Orchestrator** — Unified `LlmProvider` interface with 4 implementations: OpenAI, Anthropic,
+  Ollama (fully connected via Ktor HTTP client to `/api/chat` with streaming support and `/api/tags` health check), and
+  OpenRouter.
 - [x] **Model Failover** — Automatic priority-based fallback to secondary models when the primary is unavailable.
 - [x] **Streaming / Chunked Responses** — Stream partial responses back to the user in real time via the agent loop.
 - [x] **Session Management** — BCrypt password auth, 256-bit token generation, 24h session expiry in ConcurrentHashMap.
@@ -124,7 +126,12 @@ Production-grade reliability and safety guardrails.
 
 Run everywhere: desktop, mobile, containers.
 
-- [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (build + minimal JRE runtime) with pinned image tags (`eclipse-temurin:21.0.6_7`), non-root user, dropped capabilities, `no-new-privileges`, enforced resource limits via `mem_limit`/`cpus` (2GB RAM, 2 CPUs), persistent volumes for workspace and data. Launch script (`run.sh`) defaults to Docker with compose file validation, with `--bare-metal` escape hatch.
+- [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (
+  build + minimal JRE runtime) with pinned image tags (`eclipse-temurin:21.0.6_7`), non-root user, dropped capabilities,
+  `no-new-privileges`, enforced resource limits via `mem_limit`/`cpus` (2GB RAM, 2 CPUs), persistent volumes for
+  workspace and data. Launch script (`run.sh`) defaults to Docker with compose file validation, with `--bare-metal`
+  escape hatch. Host service access via `extra_hosts: host.docker.internal:host-gateway` and automatic
+  localhost→host.docker.internal URL rewriting for LLM providers when `OPENKLAW_SANDBOXED=true`.
 - [x] **Reverse Proxy Support** — `trustProxy` gateway config option enables `X-Forwarded-Proto` header inspection,
   allowing HTTPS termination at a reverse proxy (e.g., nginx) while the app listens on plain HTTP internally. Disabled
   by default for security. HTTPS enforcement for non-localhost connections has been removed to avoid blocking legitimate

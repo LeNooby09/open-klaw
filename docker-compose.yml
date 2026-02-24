@@ -19,6 +19,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    # Allow container to reach host services (e.g. Ollama) via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Security: drop all capabilities, add back only what's needed
     cap_drop:
       - ALL
