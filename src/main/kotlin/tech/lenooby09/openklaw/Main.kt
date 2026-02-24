@@ -83,6 +83,7 @@ fun main(args: Array<String>) {
 	val baseConfig = ConfigLoader.load(configPath)
 
 	// Environment variables override YAML config for key deployment settings
+	val envDataDir = System.getenv("OPENKLAW_DATA_DIR")
 	val config = baseConfig.copy(
 		gateway = baseConfig.gateway.copy(
 			port = System.getenv("OPENKLAW_PORT")?.toIntOrNull() ?: baseConfig.gateway.port,
@@ -94,6 +95,12 @@ fun main(args: Array<String>) {
 			browserEnabled = System.getenv("OPENKLAW_TOOL_BROWSER")?.toBoolean() ?: baseConfig.tools.browserEnabled,
 			canvasEnabled = System.getenv("OPENKLAW_TOOL_CANVAS")?.toBoolean() ?: baseConfig.tools.canvasEnabled,
 			fileSystemBaseDir = System.getenv("OPENKLAW_FILE_BASE_DIR") ?: baseConfig.tools.fileSystemBaseDir
+		),
+		memory = baseConfig.memory.copy(
+			dataDir = envDataDir ?: baseConfig.memory.dataDir
+		),
+		skills = baseConfig.skills.copy(
+			dataDir = envDataDir ?: baseConfig.skills.dataDir
 		)
 	)
 
