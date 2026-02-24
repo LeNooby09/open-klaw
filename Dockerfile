@@ -22,8 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash coreutils curl git && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user for the application
-RUN groupadd -r openklaw && useradd -r -g openklaw -m -d /home/openklaw -s /bin/bash openklaw
+# Create a non-root user with fixed UID/GID so bind-mount permissions are predictable
+ARG OPENKLAW_UID=1000
+ARG OPENKLAW_GID=1000
+RUN groupadd -r -g ${OPENKLAW_GID} openklaw && \
+    useradd -r -g openklaw -u ${OPENKLAW_UID} -m -d /home/openklaw -s /bin/bash openklaw
 
 # Create workspace directory where file/shell tools operate (sandboxed)
 RUN mkdir -p /workspace /data/conversations /data/logs /data/skills && \

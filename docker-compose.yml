@@ -1,6 +1,12 @@
 services:
   open-klaw:
-    build: .
+    build:
+      context: .
+      args:
+        # Match container UID/GID to host user for bind-mount permissions.
+        # Override with: OPENKLAW_UID=$(id -u) OPENKLAW_GID=$(id -g) docker compose up
+        OPENKLAW_UID: ${OPENKLAW_UID:-1000}
+        OPENKLAW_GID: ${OPENKLAW_GID:-1000}
     container_name: open-klaw
     # Use host networking so the container can reach host services (e.g. Ollama on localhost)
     # This is required on Linux where host.docker.internal doesn't route to 127.0.0.1

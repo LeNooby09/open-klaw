@@ -93,17 +93,35 @@ else
 		touch "$SCRIPT_DIR/config.yaml"
 	fi
 
-	# Pre-create host-side data directories so bind-mount preserves correct ownership
-	# (Docker creates missing bind-mount dirs as root, making them unwritable inside the container)
-	# Best-effort: if the host FS is read-only or restricted, the container entrypoint will retry.
+	# Pre-create host-side data directories so bind-mount preserves correct ownership.
+	# Docker creates missing bind-mount dirs as root, making them unwritable inside the
+	# container. We create them here and set ownership to match the container user
+	# (UID/GID 1000 = openklaw). Best-effort: the container entrypoint will retry.
 	mkdir -p "$SCRIPT_DIR/agent-data/logs" \
 	         "$SCRIPT_DIR/agent-data/conversations" \
-	         "$SCRIPT_DIR/agent-data/skills" 2>/dev/null || true
+	         "$SCRIPT_DIR/agent-data/skills" \
+	         "$SCRIPT_DIR/agent-workspace" 2>/dev/null || true
+
+	# Set correct ownership so the container user (openklaw, UID/GID 1000) can write.
+	# Uses sudo if available; falls back to chown without sudo; silently continues if neither works.
+	_fix_perms() {
+		if command -v sudo &>/dev/null && [ "$(id -u)" -ne 0 ]; then
+			sudo chown -R 1000:1000 "$@" 2>/dev/null || true
+		else
+			chown -R 1000:1000 "$@" 2>/dev/null || true
+		fi
+	}
+	_fix_perms "$SCRIPT_DIR/agent-data" "$SCRIPT_DIR/agent-workspace"
+
+	# Export host UID/GID so docker-compose.yml uses them for the container user.
+	# This ensures bind-mount ownership matches the host user automatically.
+	export OPENKLAW_UID="${OPENKLAW_UID:-$(id -u)}"
+	export OPENKLAW_GID="${OPENKLAW_GID:-$(id -g)}"
 
 	if [ "$FORCE_BUILD" = true ]; then
 		echo "Building Docker image..."
 		docker compose build
 	fi
 
-	exec docker compose up $DETACH
+	exec docker compose up --build $DETACH
 fi
