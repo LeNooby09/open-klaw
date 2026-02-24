@@ -14,8 +14,7 @@ object ConfigLoader {
 		if (!file.exists() || file.readText().isBlank()) {
 			logger.info("No config file found at '${file.absolutePath}' — generating default config")
 			val defaultConfig = AppConfig()
-			file.writeText(serializeToYaml(defaultConfig))
-			logger.info("Default configuration written to '${file.absolutePath}'")
+			writeConfigSafely(file, defaultConfig)
 			return defaultConfig
 		}
 		return try {
@@ -24,12 +23,23 @@ object ConfigLoader {
 			logger.info("Configuration loaded from '${file.absolutePath}'")
 			// Re-persist the full config so partial/override-only files are expanded
 			// to include all fields with their effective values
-			file.writeText(serializeToYaml(config))
-			logger.info("Full configuration persisted back to '${file.absolutePath}'")
+			writeConfigSafely(file, config)
 			config
 		} catch (e: Exception) {
 			logger.error("Failed to parse config file '${file.absolutePath}': ${e.message}")
 			throw IllegalStateException("Invalid configuration file '${file.absolutePath}': ${e.message}", e)
+		}
+	}
+
+	/**
+	 * Writes the full config to disk, logging a warning if the file is not writable.
+	 */
+	private fun writeConfigSafely(file: File, config: AppConfig) {
+		try {
+			file.writeText(serializeToYaml(config))
+			logger.info("Full configuration persisted to '${file.absolutePath}'")
+		} catch (e: Exception) {
+			logger.warn("Could not write config to '${file.absolutePath}' (read-only?): ${e.message}")
 		}
 	}
 
