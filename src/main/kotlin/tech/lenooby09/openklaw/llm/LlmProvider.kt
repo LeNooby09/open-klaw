@@ -76,51 +76,6 @@ abstract class BaseLlmProvider(
 	}
 }
 
-class OpenAiProvider(config: ProviderConfig) : BaseLlmProvider("OpenAI", config) {
-	override fun defaultModel(): String = "gpt-4o"
-
-	override suspend fun complete(messages: List<LlmMessage>, model: String): LlmResponse {
-		// Placeholder — will integrate with koog prompt-executor-openai-client
-		return LlmResponse(
-			content = "[OpenAI provider not yet connected — configure API key]",
-			model = model.ifEmpty { defaultModel() },
-			provider = name
-		)
-	}
-
-	override suspend fun completeStream(
-		messages: List<LlmMessage>,
-		model: String,
-		onChunk: suspend (String) -> Unit
-	): LlmResponse {
-		val response = complete(messages, model)
-		onChunk(response.content)
-		return response
-	}
-}
-
-class AnthropicProvider(config: ProviderConfig) : BaseLlmProvider("Anthropic", config) {
-	override fun defaultModel(): String = "claude-sonnet-4-20250514"
-
-	override suspend fun complete(messages: List<LlmMessage>, model: String): LlmResponse {
-		return LlmResponse(
-			content = "[Anthropic provider not yet connected — configure API key]",
-			model = model.ifEmpty { defaultModel() },
-			provider = name
-		)
-	}
-
-	override suspend fun completeStream(
-		messages: List<LlmMessage>,
-		model: String,
-		onChunk: suspend (String) -> Unit
-	): LlmResponse {
-		val response = complete(messages, model)
-		onChunk(response.content)
-		return response
-	}
-}
-
 class OllamaProvider(config: ProviderConfig) : BaseLlmProvider("Ollama", config) {
 	private val logger = LoggerFactory.getLogger(OllamaProvider::class.java)
 	private val client = HttpClient(CIO) {
@@ -396,31 +351,6 @@ class OllamaProvider(config: ProviderConfig) : BaseLlmProvider("Ollama", config)
 	}
 }
 
-class OpenRouterProvider(config: ProviderConfig) : BaseLlmProvider("OpenRouter", config) {
-	override fun defaultModel(): String = "openai/gpt-4o"
-
-	override suspend fun complete(messages: List<LlmMessage>, model: String): LlmResponse {
-		return LlmResponse(
-			content = "[OpenRouter provider not yet connected — configure API key]",
-			model = model.ifEmpty { defaultModel() },
-			provider = name
-		)
-	}
-
-	override suspend fun completeStream(
-		messages: List<LlmMessage>,
-		model: String,
-		onChunk: suspend (String) -> Unit
-	): LlmResponse {
-		val response = complete(messages, model)
-		onChunk(response.content)
-		return response
-	}
-}
-
 fun createProvider(config: ProviderConfig): LlmProvider = when (config.type) {
-	ProviderType.OPENAI -> OpenAiProvider(config)
-	ProviderType.ANTHROPIC -> AnthropicProvider(config)
 	ProviderType.OLLAMA -> OllamaProvider(config)
-	ProviderType.OPENROUTER -> OpenRouterProvider(config)
 }

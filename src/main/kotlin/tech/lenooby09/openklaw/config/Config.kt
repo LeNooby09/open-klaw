@@ -25,7 +25,16 @@ data class GatewayConfig(
 
 @Serializable
 data class LlmConfig(
-	val providers: List<ProviderConfig> = emptyList(),
+	val providers: List<ProviderConfig> = listOf(
+		ProviderConfig(
+			name = "ollama",
+			type = ProviderType.OLLAMA,
+			baseUrl = "http://localhost:11434",
+			model = "llama3.2",
+			priority = 0,
+			enabled = true
+		)
+	),
 	val failoverEnabled: Boolean = true
 )
 
@@ -44,7 +53,7 @@ data class ProviderConfig(
 
 @Serializable
 enum class ProviderType {
-	OPENAI, ANTHROPIC, OLLAMA, OPENROUTER
+	OLLAMA
 }
 
 @Serializable

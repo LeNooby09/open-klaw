@@ -62,10 +62,10 @@ class ConfigLoaderTest {
 			llm:
 			  failoverEnabled: false
 			  providers:
-			    - name: "test-openai"
-			      type: OPENAI
-			      apiKeyEnv: "MY_KEY"
-			      model: "gpt-4"
+			    - name: "test-ollama"
+			      type: OLLAMA
+			      baseUrl: "http://localhost:11434"
+			      model: "llama3.2"
 			      priority: 1
 			      enabled: true
 		""".trimIndent()
@@ -74,9 +74,9 @@ class ConfigLoaderTest {
 		val config = ConfigLoader.load(file.absolutePath)
 		assertEquals(false, config.llm.failoverEnabled)
 		assertEquals(1, config.llm.providers.size)
-		assertEquals("test-openai", config.llm.providers[0].name)
-		assertEquals(ProviderType.OPENAI, config.llm.providers[0].type)
-		assertEquals("gpt-4", config.llm.providers[0].model)
+		assertEquals("test-ollama", config.llm.providers[0].name)
+		assertEquals(ProviderType.OLLAMA, config.llm.providers[0].type)
+		assertEquals("llama3.2", config.llm.providers[0].model)
 	}
 
 	@Test
