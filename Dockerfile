@@ -26,12 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -r openklaw && useradd -r -g openklaw -m -d /home/openklaw -s /bin/bash openklaw
 
 # Create workspace directory where file/shell tools operate (sandboxed)
-RUN mkdir -p /workspace /data/conversations && \
+RUN mkdir -p /workspace /data/conversations /data/logs /data/skills && \
     chown -R openklaw:openklaw /workspace /data
 
 # Copy the built application
 COPY --from=builder /build/build/install/open-klaw /opt/open-klaw
-RUN chown -R openklaw:openklaw /opt/open-klaw
+COPY entrypoint.sh /opt/open-klaw/entrypoint.sh
+RUN chmod +x /opt/open-klaw/entrypoint.sh && \
+    chown -R openklaw:openklaw /opt/open-klaw
 
 # Mark the container so the application can detect it is sandboxed
 ENV OPENKLAW_SANDBOXED=true
@@ -49,4 +51,4 @@ EXPOSE 8080
 USER openklaw
 WORKDIR /workspace
 
-ENTRYPOINT ["/opt/open-klaw/bin/open-klaw"]
+ENTRYPOINT ["/opt/open-klaw/entrypoint.sh"]

@@ -93,6 +93,12 @@ else
 		touch "$SCRIPT_DIR/config.yaml"
 	fi
 
+	# Pre-create host-side data directories so bind-mount preserves correct ownership
+	# (Docker creates missing bind-mount dirs as root, making them unwritable inside the container)
+	mkdir -p "$SCRIPT_DIR/agent-data/logs" \
+	         "$SCRIPT_DIR/agent-data/conversations" \
+	         "$SCRIPT_DIR/agent-data/skills"
+
 	if [ "$FORCE_BUILD" = true ]; then
 		echo "Building Docker image..."
 		docker compose build
