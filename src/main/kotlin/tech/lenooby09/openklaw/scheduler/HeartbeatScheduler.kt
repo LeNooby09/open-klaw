@@ -96,16 +96,25 @@ class HeartbeatScheduler(
 		if (!file.exists()) {
 			createDefaultHeartbeatFile(file)
 		}
-		val content = file.readText()
+		val content = try {
+			if (file.exists()) file.readText() else DEFAULT_HEARTBEAT
+		} catch (e: Exception) {
+			logger.warn("Could not read ${config.heartbeatFile}: ${e.message}")
+			DEFAULT_HEARTBEAT
+		}
 		val parsed = parseHeartbeatRules(content)
 		rules.addAll(parsed)
 	}
 
 	private fun createDefaultHeartbeatFile(file: File) {
-		file.parentFile?.mkdirs()
-		file.writeText(DEFAULT_HEARTBEAT)
-		setRestrictivePermissions(file)
-		logger.info("Created default ${config.heartbeatFile}")
+		try {
+			file.parentFile?.mkdirs()
+			file.writeText(DEFAULT_HEARTBEAT)
+			setRestrictivePermissions(file)
+			logger.info("Created default ${config.heartbeatFile}")
+		} catch (e: Exception) {
+			logger.warn("Could not write default ${config.heartbeatFile}: ${e.message}")
+		}
 	}
 
 	/**
