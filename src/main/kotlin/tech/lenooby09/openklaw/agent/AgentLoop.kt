@@ -1,7 +1,6 @@
 package tech.lenooby09.openklaw.agent
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.llm.LlmMessage
@@ -328,7 +327,7 @@ class AgentLoop(
 
 		while (iteration <= MAX_TOOL_ITERATIONS) {
 			val llmMessages = buildLlmMessages(session, allowedTools = allowedTools)
-			val llmResponse = orchestrator.complete(llmMessages)
+			val llmResponse = orchestrator.completeStream(llmMessages) { /* collect internally */ }
 
 			if (toolRegistry == null) {
 				val msg = ChatMessage(

@@ -123,6 +123,11 @@ class OllamaProvider(config: ProviderConfig) : BaseLlmProvider("Ollama", config)
 	private val client = HttpClient(CIO) {
 		engine {
 			requestTimeout = 120_000
+			endpoint {
+				connectTimeout = 30_000
+				socketTimeout = 120_000
+				connectAttempts = 3
+			}
 		}
 	}
 	private val baseUrl: String = resolveBaseUrl().ifEmpty { "http://localhost:11434" }
