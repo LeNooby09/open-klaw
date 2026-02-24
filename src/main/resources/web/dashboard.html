@@ -342,6 +342,8 @@
             <button onclick="switchTab('conversations')">Conversations</button>
             <button onclick="switchTab('users')">Users</button>
             <button onclick="switchTab('storage')">Storage Budgets</button>
+            <button onclick="switchTab('skills')">Skills</button>
+            <button onclick="switchTab('files')">Files</button>
             <button onclick="switchTab('config')">Config</button>
         </div>
     </div>
@@ -417,6 +419,59 @@
                 </tr>
                 </thead>
                 <tbody id="storageBudgetTable"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-skills">
+        <div class="section">
+            <h2>Skill Management</h2>
+            <p style="color:#888;font-size:.85rem;margin-bottom:1rem">Manage agent skills — approve, reject, enable,
+                disable, remove, or install new ones.</p>
+            <div style="margin-bottom:.75rem;display:flex;gap:.5rem">
+                <button class="primary" onclick="showInstallSkill()">+ Install Skill</button>
+                <button onclick="loadSkills()">Refresh</button>
+            </div>
+            <table>
+                <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>ID</th>
+                    <th>Version</th>
+                    <th>Source</th>
+                    <th>Status</th>
+                    <th>Tags</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="skillsTable"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-files">
+        <div class="section">
+            <h2>File Browser</h2>
+            <p style="color:#888;font-size:.85rem;margin-bottom:.75rem">Browse the agent's workspace files.</p>
+            <div id="fileBreadcrumb" style="font-size:.85rem;margin-bottom:.75rem;color:#58a6ff"></div>
+            <div id="fileContent" style="display:none;margin-bottom:1rem">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+                    <span id="fileContentPath" style="font-size:.85rem;color:#888"></span>
+                    <button onclick="closeFileContent()">← Back</button>
+                </div>
+                <pre id="fileContentPre"
+                     style="background:#0a0a0a;border:1px solid #333;padding:.75rem;font-size:.8rem;overflow:auto;max-height:calc(100vh - 22rem);white-space:pre-wrap;word-break:break-word"></pre>
+            </div>
+            <table id="fileTable" style="display:table">
+                <thead>
+                <tr>
+                    <th></th>
+                    <th>Name</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                </tr>
+                </thead>
+                <tbody id="filesTableBody"></tbody>
             </table>
         </div>
     </div>
@@ -619,6 +674,8 @@
         if (name === 'users') loadUsers();
         if (name === 'storage') loadStorageBudgets();
         if (name === 'config') loadConfig();
+        if (name === 'skills') loadSkills();
+        if (name === 'files') loadFiles();
     }
 
     async function sendMessage() {
@@ -898,6 +955,192 @@
             document.getElementById('configError').textContent = e.error || 'Failed to reload.';
             toast(e.error || 'Failed to reload.', 'error');
         }
+    }
+
+    // ── Skills ──
+    async function loadSkills() {
+        const r = await api('GET', '/api/skills');
+        if (!r.ok) return;
+        const list = await r.json();
+        const tb = document.getElementById('skillsTable');
+        if (!list.length) {
+            tb.innerHTML = '<tr><td colspan="7" style="color:#888">No skills loaded.</td></tr>';
+            return;
+        }
+        tb.innerHTML = '';
+        list.forEach(s => {
+            const tr = document.createElement('tr');
+            const statusColor = s.status === 'ACTIVE' ? '#6f6' : s.status === 'PENDING' ? '#ff0' : s.status === 'DISABLED' ? '#888' : '#f66';
+            tr.innerHTML =
+                '<td><strong>' + esc(s.name) + '</strong></td>' +
+                '<td style="font-size:.75rem">' + esc(s.id) + '</td>' +
+                '<td>' + esc(s.version) + '</td>' +
+                '<td>' + esc(s.source) + '</td>' +
+                '<td style="color:' + statusColor + '">' + esc(s.status) + '</td>' +
+                '<td style="font-size:.75rem">' + esc((s.tags || []).join(', ')) + '</td>' +
+                '<td id="skill-actions-' + escAttr(s.id) + '"></td>';
+            tb.appendChild(tr);
+            const acts = tr.querySelector('#skill-actions-' + CSS.escape(s.id));
+            if (s.status === 'PENDING') {
+                const ab = document.createElement('button');
+                ab.className = 'primary';
+                ab.textContent = 'Approve';
+                ab.addEventListener('click', () => skillAction('approve', s.id));
+                acts.appendChild(ab);
+                acts.appendChild(document.createTextNode(' '));
+                const rb = document.createElement('button');
+                rb.className = 'danger';
+                rb.textContent = 'Reject';
+                rb.addEventListener('click', () => skillAction('reject', s.id));
+                acts.appendChild(rb);
+            }
+            if (s.status === 'ACTIVE') {
+                const db = document.createElement('button');
+                db.textContent = 'Disable';
+                db.addEventListener('click', () => skillAction('disable', s.id));
+                acts.appendChild(db);
+            }
+            if (s.status === 'DISABLED' || s.status === 'REJECTED') {
+                const eb = document.createElement('button');
+                eb.className = 'primary';
+                eb.textContent = 'Enable';
+                eb.addEventListener('click', () => skillAction('enable', s.id));
+                acts.appendChild(eb);
+            }
+            if (s.source !== 'BUNDLED') {
+                acts.appendChild(document.createTextNode(' '));
+                const del = document.createElement('button');
+                del.className = 'danger';
+                del.textContent = 'Remove';
+                del.addEventListener('click', () => removeSkill(s.id));
+                acts.appendChild(del);
+            }
+        });
+    }
+
+    async function skillAction(action, skillId) {
+        const r = await api('POST', '/api/skills/' + encodeURIComponent(skillId) + '/' + action);
+        if (r.ok) {
+            toast('Skill ' + action + 'd.');
+            loadSkills();
+        } else {
+            const e = await r.json().catch(() => ({error: 'Failed.'}));
+            toast(e.error || 'Failed.', 'error');
+        }
+    }
+
+    async function removeSkill(skillId) {
+        if (!confirm('Remove skill "' + skillId + '"?')) return;
+        const r = await api('DELETE', '/api/skills/' + encodeURIComponent(skillId));
+        if (r.ok) {
+            toast('Skill removed.');
+            loadSkills();
+        } else {
+            const e = await r.json().catch(() => ({error: 'Failed.'}));
+            toast(e.error || 'Failed.', 'error');
+        }
+    }
+
+    function showInstallSkill() {
+        document.getElementById('modalContent').innerHTML =
+            '<h3>Install Skill</h3>' +
+            '<p style="color:#888;font-size:.85rem;margin-bottom:.5rem">Paste a SKILL.md file content below:</p>' +
+            '<textarea id="skillContentInput" spellcheck="false" style="width:100%;height:200px;background:#0a0a0a;color:#ccc;border:1px solid #333;padding:.5rem;font-family:monospace;font-size:.8rem;resize:vertical" placeholder="# Skill Name\n\n**id:** my-skill\n**version:** 1.0.0\n\n## Description\n..."></textarea>' +
+            '<div class="actions"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="installSkill()">Install</button></div>';
+        document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    async function installSkill() {
+        const content = document.getElementById('skillContentInput').value;
+        if (!content.trim()) {
+            toast('Skill content cannot be empty.', 'error');
+            return;
+        }
+        const r = await api('POST', '/api/skills/install', {content: content, source: 'WORKSPACE'});
+        if (r.ok) {
+            toast('Skill installed.');
+            closeModal();
+            loadSkills();
+        } else {
+            const e = await r.json().catch(() => ({error: 'Failed.'}));
+            toast(e.error || 'Failed to install skill.', 'error');
+        }
+    }
+
+    // ── File Browser ──
+    let currentFilePath = '';
+
+    async function loadFiles(path) {
+        if (path === undefined) path = currentFilePath;
+        currentFilePath = path || '';
+        const r = await api('GET', '/api/files?path=' + encodeURIComponent(currentFilePath));
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({error: 'Failed to browse files.'}));
+            toast(e.error || 'Failed.', 'error');
+            return;
+        }
+        const data = await r.json();
+        document.getElementById('fileContent').style.display = 'none';
+        document.getElementById('fileTable').style.display = 'table';
+
+        // Breadcrumb
+        const bc = document.getElementById('fileBreadcrumb');
+        let crumbs = '<a href="#" onclick="loadFiles(\'\');return false" style="color:#58a6ff">root</a>';
+        if (data.currentPath) {
+            const parts = data.currentPath.split(/[\/\\]/);
+            let accumulated = '';
+            parts.forEach(p => {
+                accumulated = accumulated ? accumulated + '/' + p : p;
+                const acc = accumulated;
+                crumbs += ' / <a href="#" onclick="loadFiles(\'' + escAttr(acc) + '\');return false" style="color:#58a6ff">' + esc(p) + '</a>';
+            });
+        }
+        bc.innerHTML = crumbs;
+
+        const tb = document.getElementById('filesTableBody');
+        if (!data.entries.length) {
+            tb.innerHTML = '<tr><td colspan="4" style="color:#888">Empty directory.</td></tr>';
+            return;
+        }
+        tb.innerHTML = '';
+        if (data.parentPath !== null && data.parentPath !== undefined) {
+            const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            tr.innerHTML = '<td>📁</td><td><a href="#" style="color:#58a6ff">..</a></td><td></td><td></td>';
+            tr.addEventListener('click', () => loadFiles(data.parentPath));
+            tb.appendChild(tr);
+        }
+        data.entries.forEach(f => {
+            const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            const icon = f.isDirectory ? '📁' : '📄';
+            const size = f.isDirectory ? '' : formatBytes(f.size);
+            tr.innerHTML = '<td>' + icon + '</td><td><a href="#" style="color:' + (f.isDirectory ? '#58a6ff' : '#ccc') + '">' + esc(f.name) + '</a></td><td style="font-size:.8rem">' + size + '</td><td style="font-size:.8rem;color:#888">' + esc(f.lastModified) + '</td>';
+            tr.addEventListener('click', () => {
+                if (f.isDirectory) loadFiles(f.path);
+                else viewFile(f.path);
+            });
+            tb.appendChild(tr);
+        });
+    }
+
+    async function viewFile(path) {
+        const r = await api('GET', '/api/files/content?path=' + encodeURIComponent(path));
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({error: 'Failed to read file.'}));
+            toast(e.error || 'Failed.', 'error');
+            return;
+        }
+        const data = await r.json();
+        document.getElementById('fileTable').style.display = 'none';
+        document.getElementById('fileContent').style.display = 'block';
+        document.getElementById('fileContentPath').textContent = data.path + ' (' + formatBytes(data.size) + ')';
+        document.getElementById('fileContentPre').textContent = data.content;
+    }
+
+    function closeFileContent() {
+        document.getElementById('fileContent').style.display = 'none';
+        document.getElementById('fileTable').style.display = 'table';
     }
 
     (async function init() {

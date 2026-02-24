@@ -103,7 +103,13 @@ Make the agent infinitely extensible through a skill/plugin ecosystem.
 - [x] **Skill Definition Format (`SKILL.md`)** — Structured Markdown files (`# Name`, `**id:**`, `**version:**`, `**author:**`, `**tags:**`, `## Description`, `## Instructions`, `## Examples`, `## Context`) parsed into `SkillDefinition` data model. ID validation (`^[a-zA-Z0-9_-]{1,64}$`), auto-generated IDs from skill name, section extraction from `##` headings, and source/status tracking. Active skills injected into agent system prompts via `buildPromptSection()`.
 - [x] **Bundled Skills** — Three default skills shipped with Open-Klaw: Web Research (structured research methodology with source attribution), File Management (safe file organization with destructive operation confirmation), and Coding Assistance (code writing, review, and debugging workflow). Bundled skills are auto-approved (`ACTIVE` status) and cannot be overwritten or removed.
 - [x] **Workspace Skills** — User-defined `SKILL.md` files loaded from a configurable workspace skills directory (`workspaceSkillsDir`). New workspace skills enter `PENDING` status by default, with optional `autoApproveWorkspaceSkills` config flag for trusted environments. Max file size enforcement (256 KB) prevents oversized skill files.
-- [x] **Skill Install Gating & UI** — Full approval workflow: skills enter `PENDING` → admin can `approve` (→ `ACTIVE`), `reject` (→ `REJECTED`), `disable` (→ `DISABLED`), or `enable` (→ `ACTIVE`). REST API endpoints for all gating operations (`POST /api/skills/approve|reject|disable|enable`). Status persisted in JSON manifest file (`data/skills/manifest.json`) with POSIX owner-only permissions. Admin-only access enforced on all mutation endpoints (including publish). Atomic state transitions via `ConcurrentHashMap.computeIfPresent()` prevent race conditions.
+- [x] **Skill Install Gating & UI** — Full approval workflow: skills enter `PENDING` → admin can `approve` (→ `ACTIVE`),
+  `reject` (→ `REJECTED`), `disable` (→ `DISABLED`), or `enable` (→ `ACTIVE`). REST API endpoints for all gating
+  operations (`POST /api/skills/approve|reject|disable|enable`). Status persisted in JSON manifest file (
+  `data/skills/manifest.json`) with POSIX owner-only permissions. Admin-only access enforced on all mutation endpoints (
+  including publish). Atomic state transitions via `ConcurrentHashMap.computeIfPresent()` prevent race conditions. *
+  *Dashboard Skills tab**: full skill management UI with approve/reject/enable/disable/remove actions,
+  install-from-content modal, status color indicators, and tag display.
 - [x] **Skill Registry (ClawHub equivalent)** — `SkillRegistryClient` with search, fetch, install, and publish operations against a configurable remote registry URL (`registryUrl`). REST API endpoints: `POST /api/skills/registry/search`, `POST /api/skills/registry/install`, `POST /api/skills/registry/publish`. Registry-installed skills stored in `data/skills/registry/` directory. Graceful degradation when registry is unavailable — operations return empty results without blocking. SSRF prevention: HTTPS-only enforcement, configurable host allowlist (`registryAllowedHosts`), and URL validation at startup.
 - [x] **Self-Improving Agent** — `SkillWriterTool` registered in the tool registry (name: `skill_writer`) allows the agent to autonomously create new skills when it encounters unfamiliar task patterns. Generates valid `SKILL.md` content with all sections and installs via `SkillManager`. Self-created skills saved to `data/skills/self-created/` and enter `PENDING` status requiring admin approval. Configurable via `selfImprovementEnabled` flag (default: `false`, opt-in). Duplicate ID and bundled skill overwrite protection.
 - [x] **Skills Security Hardening** — Prompt injection detection: suspicious pattern logging on skill install (e.g., "ignore previous instructions", "override system prompt"). Total skill context size cap (`maxSkillContextChars`, default 50K) prevents context window flooding. Path traversal protection in skill file deletion via canonical path validation against allowed directories. Admin-only enforcement on all mutation endpoints including registry publish.
@@ -132,8 +138,10 @@ Run everywhere: desktop, mobile, containers.
 
 - [x] **Docker Deployment** — One-command `docker compose up` with all services configured. Multi-stage Dockerfile (
   build + minimal JRE runtime) with pinned image tags (`eclipse-temurin:21.0.6_7`), non-root user, dropped capabilities,
-  `no-new-privileges`, enforced resource limits via `mem_limit`/`cpus` (2GB RAM, 2 CPUs), persistent volumes for
-  workspace and data. Launch script (`run.sh`) defaults to Docker with compose file validation, with `--bare-metal`
+  `no-new-privileges`, enforced resource limits via `mem_limit`/`cpus` (2GB RAM, 2 CPUs), host-side bind-mount volumes
+  (`./agent-workspace:/workspace`, `./agent-data:/data`) for easy inspection of agent files, skills, and conversations
+  from the host filesystem. Launch script (`run.sh`) defaults to Docker with compose file validation, with
+  `--bare-metal`
   escape hatch. Host service access via `extra_hosts: host.docker.internal:host-gateway` and automatic
   localhost→host.docker.internal URL rewriting for LLM providers when `OPENKLAW_SANDBOXED=true`.
 - [x] **Reverse Proxy Support** — `trustProxy` gateway config option enables `X-Forwarded-Proto` header inspection,
@@ -154,6 +162,10 @@ Run everywhere: desktop, mobile, containers.
   All mutation endpoints require CSRF verification. Dashboard "Config" tab provides a JSON editor with Save & Apply,
   Reload from Disk, and Refresh actions. Components register `onChange` listeners for runtime propagation (e.g.,
   `AgentLoop.maxToolCalls`). Gateway settings (port, bind address) require a restart to take effect.
+- [x] **File Browser Dashboard** — Admin-only "Files" tab in the web dashboard for inspecting the agent's workspace
+  files from the browser. REST API endpoints: `GET /api/files` (list directory contents with path traversal protection),
+  `GET /api/files/content` (read file content, 1 MB size limit). UI features breadcrumb navigation, directory listing
+  with icons, file size/date display, and file content viewer with back navigation. Sandboxed to `fileBaseDir`.
 - [ ] **Tailscale / SSH Tunnels** — Secure remote access without exposing the gateway to the public internet.
 - [ ] **Desktop App (macOS/Linux/Windows)** — System tray/menu bar control, voice wake, push-to-talk.
 - [ ] **Mobile Nodes (iOS/Android)** — Pair mobile devices as agent nodes with voice trigger and canvas support.

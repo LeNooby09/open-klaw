@@ -35,6 +35,9 @@ import tech.lenooby09.openklaw.tools.CanvasTool
 import tech.lenooby09.openklaw.tools.ToolExecutionRequest
 import tech.lenooby09.openklaw.tools.ToolRegistry
 import tech.lenooby09.openklaw.web.DashboardHtml
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 
 class GatewayServer(
 	private val config: GatewayConfig,
@@ -52,7 +55,8 @@ class GatewayServer(
 	private val userPermissionManager: UserPermissionManager? = null,
 	private val healthCheckManager: HealthCheckManager? = null,
 	private val usageTracker: UsageTracker? = null,
-	private val configHolder: ConfigHolder? = null
+	private val configHolder: ConfigHolder? = null,
+	private val fileBaseDir: String = "."
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -103,6 +107,7 @@ class GatewayServer(
 				webhookTriggerManager?.installRoutes(this, maxInputBytes)
  			webhookListRoute()
 				skillRoutes()
+				fileBrowserRoutes()
 				permissionRoutes()
 				healthRoutes()
 				observabilityRoutes()
@@ -956,6 +961,120 @@ class GatewayServer(
 				logger.error("Failed to reload configuration: ${e.message}", e)
 				call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Failed to reload configuration: ${e.message}"))
 			}
+		}
+	}
+
+	@kotlinx.serialization.Serializable
+	private data class FileEntry(
+		val name: String,
+		val path: String,
+		val isDirectory: Boolean,
+		val size: Long = 0,
+		val lastModified: String = ""
+	)
+
+	@kotlinx.serialization.Serializable
+	private data class FileBrowseResponse(
+		val currentPath: String,
+		val parentPath: String?,
+		val entries: List<FileEntry>
+	)
+
+	@kotlinx.serialization.Serializable
+	private data class FileContentResponse(
+		val path: String,
+		val content: String,
+		val size: Long
+	)
+
+	private fun Routing.fileBrowserRoutes() {
+		val baseDir = File(fileBaseDir).canonicalFile
+		val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+
+		// List directory contents
+		get("/api/files") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			val relativePath = call.request.queryParameters["path"] ?: ""
+			val target = File(baseDir, relativePath).canonicalFile
+			if (!target.path.startsWith(baseDir.path)) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Path is outside the allowed base directory."))
+				return@get
+			}
+			if (!target.exists()) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("Path not found."))
+				return@get
+			}
+			if (!target.isDirectory) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Path is not a directory."))
+				return@get
+			}
+			val entries = (target.listFiles() ?: emptyArray())
+				.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
+				.map { file ->
+					FileEntry(
+						name = file.name,
+						path = file.relativeTo(baseDir).path,
+						isDirectory = file.isDirectory,
+						size = if (file.isFile) file.length() else 0,
+						lastModified = dateFormat.format(Date(file.lastModified()))
+					)
+				}
+			val parentPath = if (target != baseDir) {
+				target.parentFile.relativeTo(baseDir).path.ifEmpty { "" }
+			} else null
+			call.respond(
+				FileBrowseResponse(
+					currentPath = target.relativeTo(baseDir).path,
+					parentPath = parentPath,
+					entries = entries
+				)
+			)
+		}
+
+		// Read file content
+		get("/api/files/content") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			val relativePath = call.request.queryParameters["path"]
+			if (relativePath.isNullOrBlank()) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing file path."))
+				return@get
+			}
+			val target = File(baseDir, relativePath).canonicalFile
+			if (!target.path.startsWith(baseDir.path)) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Path is outside the allowed base directory."))
+				return@get
+			}
+			if (!target.exists()) {
+				call.respond(HttpStatusCode.NotFound, ErrorResponse("File not found."))
+				return@get
+			}
+			if (!target.isFile) {
+				call.respond(HttpStatusCode.BadRequest, ErrorResponse("Path is not a file."))
+				return@get
+			}
+			val maxReadSize = 1024 * 1024L // 1MB
+			if (target.length() > maxReadSize) {
+				call.respond(
+					HttpStatusCode.BadRequest,
+					ErrorResponse("File too large to display (${target.length()} bytes, max $maxReadSize).")
+				)
+				return@get
+			}
+			call.respond(
+				FileContentResponse(
+					path = target.relativeTo(baseDir).path,
+					content = target.readText(),
+					size = target.length()
+				)
+			)
 		}
 	}
 

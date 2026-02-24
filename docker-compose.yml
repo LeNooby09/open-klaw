@@ -7,8 +7,9 @@ services:
     network_mode: host
     volumes:
       # Persist workspace and conversation data between restarts
-      - openklaw-workspace:/workspace
-      - openklaw-data:/data
+      # Also bind-mount to host directories for easy inspection
+      - ./agent-workspace:/workspace
+      - ./agent-data:/data
       # Bind-mount config file so edits on host are reflected in container
       - ./config.yaml:/workspace/config.yaml
     environment:
@@ -35,6 +36,5 @@ services:
     cpus: 2.0
     restart: unless-stopped
 
-volumes:
-  openklaw-workspace:
-  openklaw-data:
+## Volumes are bind-mounted to ./agent-workspace and ./agent-data
+## for easy host-side inspection of agent files, skills, and conversations.

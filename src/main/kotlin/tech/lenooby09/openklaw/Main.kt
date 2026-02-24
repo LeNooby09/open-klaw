@@ -286,7 +286,8 @@ fun main(args: Array<String>) {
 		userPermissionManager,
 		healthCheckManager,
 		usageTracker,
-		configHolder
+		configHolder,
+		config.tools.fileSystemBaseDir
 	)
 
 	// Register periodic cleanup callbacks
