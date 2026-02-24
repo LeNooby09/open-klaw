@@ -95,9 +95,10 @@ else
 
 	# Pre-create host-side data directories so bind-mount preserves correct ownership
 	# (Docker creates missing bind-mount dirs as root, making them unwritable inside the container)
+	# Best-effort: if the host FS is read-only or restricted, the container entrypoint will retry.
 	mkdir -p "$SCRIPT_DIR/agent-data/logs" \
 	         "$SCRIPT_DIR/agent-data/conversations" \
-	         "$SCRIPT_DIR/agent-data/skills"
+	         "$SCRIPT_DIR/agent-data/skills" 2>/dev/null || true
 
 	if [ "$FORCE_BUILD" = true ]; then
 		echo "Building Docker image..."
