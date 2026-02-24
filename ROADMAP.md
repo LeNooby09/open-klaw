@@ -16,7 +16,8 @@ The foundation: a running agent that can receive a message, think, act, and resp
 - [x] **Streaming / Chunked Responses** — Stream partial responses back to the user in real time via the agent loop.
 - [x] **Session Management** — BCrypt password auth, 256-bit token generation, 24h session expiry in ConcurrentHashMap.
 - [x] **Security Hardening** — One-time signup token for first admin registration (no hardcoded credentials),
-  localhost-only CORS with credentials support, login rate limiting with exponential backoff (atomic/thread-safe),
+  CORS with credentials support (localhost-only when bound to loopback, `anyHost()` when bound to `0.0.0.0`/`::` for
+  Docker/remote access), login rate limiting with exponential backoff (atomic/thread-safe),
   two-cookie CSRF protection (HttpOnly session cookie + readable CSRF cookie for double-submit pattern via
   `X-CSRF-Token` header), security headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`,
   `Referrer-Policy`, `CSP`, `HSTS` for non-localhost), bounded request body reading via `receiveText()` with

@@ -521,6 +521,10 @@
                 localStorage.setItem('username', username);
                 localStorage.setItem('isAdmin', String(isAdmin));
                 showDashboard();
+            } else if (r.status === 403) {
+                // Users already exist — redirect to login screen
+                document.getElementById('setupError').textContent = 'An admin account already exists. Redirecting to login…';
+                setTimeout(showLogin, 1500);
             } else {
                 try {
                     const e = await r.json();

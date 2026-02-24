@@ -64,8 +64,12 @@ class GatewayServer(
 			}
 			install(WebSockets)
 			install(CORS) {
-				allowHost("localhost:${config.port}")
-				allowHost("127.0.0.1:${config.port}")
+				if (config.bindAddress == "0.0.0.0" || config.bindAddress == "::") {
+					anyHost()
+				} else {
+					allowHost("localhost:${config.port}")
+					allowHost("127.0.0.1:${config.port}")
+				}
 				allowMethod(HttpMethod.Get)
 				allowMethod(HttpMethod.Post)
 				allowMethod(HttpMethod.Put)
