@@ -12,7 +12,8 @@ The foundation: a running agent that can receive a message, think, act, and resp
 - [x] **Local Gateway Server** — Ktor CIO HTTP server with REST API (auth, stats, chat, conversations) and Bearer token auth. Serves a web dashboard SPA from an external HTML resource file (`/web/dashboard.html`) loaded at runtime.
 - [x] **Agent Loop** — Core think → act → observe cycle with conversation session management and context windowing (last 50 messages).
 - [x] **Model-Agnostic LLM Orchestrator** — Unified `LlmProvider` interface with 4 implementations: OpenAI, Anthropic,
-  Ollama (fully connected via Ktor HTTP client to `/api/chat` with streaming support and `/api/tags` health check), and
+  Ollama (fully connected via Ktor HTTP client to `/api/chat` with streaming support, `/api/tags` health check, and
+  automatic model pull via `/api/pull` with streaming progress shown in chat), and
   OpenRouter.
 - [x] **Model Failover** — Automatic priority-based fallback to secondary models when the primary is unavailable.
 - [x] **Streaming / Chunked Responses** — Stream partial responses back to the user in real time via the agent loop.
