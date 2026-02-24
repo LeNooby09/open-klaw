@@ -15,6 +15,8 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
+import tech.lenooby09.openklaw.config.AppConfig
+import tech.lenooby09.openklaw.config.ConfigHolder
 import tech.lenooby09.openklaw.config.GatewayConfig
 import tech.lenooby09.openklaw.config.SecurityConfig
 import tech.lenooby09.openklaw.health.HealthCheckManager
@@ -49,7 +51,8 @@ class GatewayServer(
 	private val skillRegistryClient: SkillRegistryClient? = null,
 	private val userPermissionManager: UserPermissionManager? = null,
 	private val healthCheckManager: HealthCheckManager? = null,
-	private val usageTracker: UsageTracker? = null
+	private val usageTracker: UsageTracker? = null,
+	private val configHolder: ConfigHolder? = null
 ) {
 	private val logger = LoggerFactory.getLogger(GatewayServer::class.java)
 	private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -103,6 +106,7 @@ class GatewayServer(
 				permissionRoutes()
 				healthRoutes()
 				observabilityRoutes()
+				configRoutes()
 			}
 		}.start(wait = false)
 
@@ -902,6 +906,55 @@ class GatewayServer(
 				call.respond(MessageResponse("Permissions removed for user '$username'. Access is now unrestricted."))
 			} else {
 				call.respond(HttpStatusCode.NotFound, ErrorResponse("No permission entry found for user '$username'."))
+			}
+		}
+	}
+
+	private fun Routing.configRoutes() {
+		if (configHolder == null) return
+
+		// Get current config as JSON (admin only)
+		get("/api/config") {
+			val session = call.requireAuth() ?: return@get
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@get
+			}
+			call.respond(configHolder.current)
+		}
+
+		// Update config from JSON (admin only, hot-reload)
+		put("/api/config") {
+			val session = call.requireAuth() ?: return@put
+			if (!call.verifyCsrf(session)) return@put
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@put
+			}
+			val newConfig = call.receiveBounded<AppConfig>() ?: return@put
+			try {
+				configHolder.update(newConfig)
+				call.respond(MessageResponse("Configuration updated and hot-reloaded successfully."))
+			} catch (e: Exception) {
+				logger.error("Failed to update configuration: ${e.message}", e)
+				call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Failed to update configuration: ${e.message}"))
+			}
+		}
+
+		// Reload config from disk (admin only)
+		post("/api/config/reload") {
+			val session = call.requireAuth() ?: return@post
+			if (!call.verifyCsrf(session)) return@post
+			if (!session.isAdmin) {
+				call.respond(HttpStatusCode.Forbidden, ErrorResponse("Admin access required."))
+				return@post
+			}
+			try {
+				configHolder.reload()
+				call.respond(MessageResponse("Configuration reloaded from disk successfully."))
+			} catch (e: Exception) {
+				logger.error("Failed to reload configuration: ${e.message}", e)
+				call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Failed to reload configuration: ${e.message}"))
 			}
 		}
 	}

@@ -76,7 +76,8 @@ data class ToolsConfig(
 	val fileSystemBaseDir: String = ".",
 	val fileSystemMaxFileSizeBytes: Long = 10 * 1024 * 1024,
 	val browserHeadless: Boolean = true,
-	val browserTimeoutSeconds: Long = 30
+	val browserTimeoutSeconds: Long = 30,
+	val maxToolCalls: Int = 5
 )
 
 @Serializable

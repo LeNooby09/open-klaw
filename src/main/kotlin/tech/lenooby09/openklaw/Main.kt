@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
+import tech.lenooby09.openklaw.config.ConfigHolder
 import tech.lenooby09.openklaw.config.ConfigLoader
 import tech.lenooby09.openklaw.gateway.GatewayServer
 import tech.lenooby09.openklaw.health.BuiltInHealthChecks
@@ -95,6 +96,9 @@ fun main(args: Array<String>) {
 		)
 	)
 
+	val configHolder = ConfigHolder(config, configPath)
+	logger.info("Configuration holder initialized (hot-reload enabled)")
+
 	val sessionManager = SessionManager(config.auth, config.security)
 	sessionManager.startCleanupScheduler()
 
@@ -136,7 +140,14 @@ fun main(args: Array<String>) {
 
 	logger.info("Phase 6 skills platform initialized — ${skillManager.getSkillCount()} skills loaded, ${toolRegistry.getToolCount()} tools registered")
 
-	val agentLoop = AgentLoop(orchestrator, toolRegistry, memoryManager, skillManager)
+	val agentLoop =
+		AgentLoop(orchestrator, toolRegistry, memoryManager, skillManager, maxToolCalls = config.tools.maxToolCalls)
+
+	// Register hot-reload listener to propagate config changes at runtime
+	configHolder.onChange { newConfig ->
+		agentLoop.maxToolCalls = newConfig.tools.maxToolCalls
+		logger.info("Hot-reloaded: maxToolCalls=${newConfig.tools.maxToolCalls}")
+	}
 
 	// Initialize Messaging & Transport Integrations (Phase 4)
 	val messagingConfig = config.messaging
@@ -258,7 +269,24 @@ fun main(args: Array<String>) {
 	val usageTracker = UsageTracker()
 	logger.info("Phase 7 initialized — lane queues, user permissions, retry policies, health checks, usage tracking")
 
-	val gateway = GatewayServer(config.gateway, config.security, sessionManager, agentLoop, startTime, toolRegistry, canvasTool, memoryManager, channelRouter, webhookTriggerManager, skillManager, skillRegistryClient, userPermissionManager, healthCheckManager, usageTracker)
+	val gateway = GatewayServer(
+		config.gateway,
+		config.security,
+		sessionManager,
+		agentLoop,
+		startTime,
+		toolRegistry,
+		canvasTool,
+		memoryManager,
+		channelRouter,
+		webhookTriggerManager,
+		skillManager,
+		skillRegistryClient,
+		userPermissionManager,
+		healthCheckManager,
+		usageTracker,
+		configHolder
+	)
 
 	// Register periodic cleanup callbacks
 	sessionManager.onCleanup { gateway.cleanupRateLimiter() }

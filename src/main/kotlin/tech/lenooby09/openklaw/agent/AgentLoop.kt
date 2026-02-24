@@ -65,7 +65,8 @@ class AgentLoop(
 	private val toolRegistry: ToolRegistry? = null,
 	private val memoryManager: MemoryManager? = null,
 	private val skillManager: SkillManager? = null,
-	private val conversationsDir: File = File("data/conversations")
+	private val conversationsDir: File = File("data/conversations"),
+	@Volatile var maxToolCalls: Int = MAX_TOOL_ITERATIONS
 ) {
 	private val logger = LoggerFactory.getLogger(AgentLoop::class.java)
 	private val conversations = ConcurrentHashMap<String, ConversationSession>()
@@ -157,7 +158,7 @@ class AgentLoop(
  			// Handle tool calls in streaming mode (execute tools after initial stream completes)
  			if (toolRegistry != null) {
  				var iteration = 0
- 				while (iteration < MAX_TOOL_ITERATIONS) {
+				while (iteration < maxToolCalls) {
   				val toolCall = parseToolCall(content) ?: break
   				iteration++
 
@@ -325,7 +326,7 @@ class AgentLoop(
 	private suspend fun runAgentLoop(session: ConversationSession, allowedTools: Set<String>? = null): ChatMessage {
 		var iteration = 0
 
-		while (iteration <= MAX_TOOL_ITERATIONS) {
+		while (iteration <= maxToolCalls) {
 			val llmMessages = buildLlmMessages(session, allowedTools = allowedTools)
 			val llmResponse = orchestrator.completeStream(llmMessages) { /* collect internally */ }
 
@@ -388,7 +389,7 @@ class AgentLoop(
 
 		val maxIterMsg = ChatMessage(
 			role = "assistant",
-			content = "I've reached the maximum number of tool calls ($MAX_TOOL_ITERATIONS) for this turn. Please let me know if you'd like me to continue."
+			content = "I've reached the maximum number of tool calls ($maxToolCalls) for this turn. Please let me know if you'd like me to continue."
 		)
 		session.messages.add(maxIterMsg)
 		session.lastActiveAt = System.currentTimeMillis()

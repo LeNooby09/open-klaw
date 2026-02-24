@@ -46,6 +46,9 @@ Give the agent hands: the ability to interact with the real world.
 - [x] **Browser Control** — HTTP-based navigation, text/link extraction, and page snapshots. Form fill, click, and JS execution stubbed for future Playwright/Selenium integration.
 - [x] **Canvas / UI Surface** — Push, update, remove, clear, and list rich content items (HTML, Markdown, images, code) on a display surface accessible via REST API.
 - [x] **Tool Registry** — Pluggable `Tool` interface with runtime registration/unregistration. Automatic parameter validation, execution timing, and LLM system prompt generation for tool descriptions.
+- [x] **Configurable Max Tool Calls** — Admin-configurable `maxToolCalls` setting in `ToolsConfig` (default: 5) controls
+  the maximum number of tool invocations per agent turn. Replaces the previously hardcoded `MAX_TOOL_ITERATIONS`
+  constant. Wired through `AgentLoop` constructor and applied in both `chat()` and `chatStream()` paths.
 
 ---
 
@@ -142,6 +145,13 @@ Run everywhere: desktop, mobile, containers.
   variable overrides for key deployment settings (`OPENKLAW_PORT`, `OPENKLAW_BIND`, tool toggles), custom config path
   via `--config=<path>` flag or `OPENKLAW_CONFIG` env var, and `--generate-config` to produce a fully-commented default
   template. Unknown keys ignored for forward compatibility (`strictMode = false`).
+- [x] **Admin Config Dashboard & Hot-Reload** — Thread-safe `ConfigHolder` wraps `AppConfig` with `@Volatile` read and
+  `@Synchronized` update/reload, YAML persistence to disk, and listener-based change notification for hot-reloading
+  without application restart. Admin-only REST API: `GET /api/config` (read current config as JSON),
+  `PUT /api/config` (update config, persist to YAML, and hot-reload), `POST /api/config/reload` (reload from disk).
+  All mutation endpoints require CSRF verification. Dashboard "Config" tab provides a JSON editor with Save & Apply,
+  Reload from Disk, and Refresh actions. Components register `onChange` listeners for runtime propagation (e.g.,
+  `AgentLoop.maxToolCalls`). Gateway settings (port, bind address) require a restart to take effect.
 - [ ] **Tailscale / SSH Tunnels** — Secure remote access without exposing the gateway to the public internet.
 - [ ] **Desktop App (macOS/Linux/Windows)** — System tray/menu bar control, voice wake, push-to-talk.
 - [ ] **Mobile Nodes (iOS/Android)** — Pair mobile devices as agent nodes with voice trigger and canvas support.

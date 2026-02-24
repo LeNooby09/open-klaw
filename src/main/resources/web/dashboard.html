@@ -342,6 +342,7 @@
             <button onclick="switchTab('conversations')">Conversations</button>
             <button onclick="switchTab('users')">Users</button>
             <button onclick="switchTab('storage')">Storage Budgets</button>
+            <button onclick="switchTab('config')">Config</button>
         </div>
     </div>
 
@@ -417,6 +418,24 @@
                 </thead>
                 <tbody id="storageBudgetTable"></tbody>
             </table>
+        </div>
+    </div>
+
+    <div class="panel" id="panel-config">
+        <div class="section">
+            <h2>Configuration</h2>
+            <p style="color:#888;font-size:.85rem;margin-bottom:1rem">Edit the application configuration as JSON.
+                Changes are hot-reloaded without restarting the server. Note: gateway settings (port, bind address)
+                require a restart to take effect.</p>
+            <div style="margin-bottom:.75rem;display:flex;gap:.5rem">
+                <button class="primary" id="configSaveBtn" onclick="saveConfig()">Save &amp; Apply</button>
+                <button onclick="reloadConfigFromDisk()">Reload from Disk</button>
+                <button onclick="loadConfig()">Refresh</button>
+            </div>
+            <div id="configError" style="color:#f66;font-size:.85rem;margin-bottom:.5rem"></div>
+            <textarea id="configEditor"
+                      spellcheck="false"
+                      style="width:100%;height:calc(100vh - 22rem);min-height:300px;background:#0a0a0a;color:#ccc;border:1px solid #333;padding:.5rem;font-family:monospace;font-size:.85rem;resize:vertical;tab-size:2"></textarea>
         </div>
     </div>
 </div>
@@ -599,6 +618,7 @@
         if (name === 'conversations') loadConversations();
         if (name === 'users') loadUsers();
         if (name === 'storage') loadStorageBudgets();
+        if (name === 'config') loadConfig();
     }
 
     async function sendMessage() {
@@ -833,6 +853,51 @@
 
     function closeModal() {
         document.getElementById('modalOverlay').classList.remove('active')
+    }
+
+    async function loadConfig() {
+        document.getElementById('configError').textContent = '';
+        const r = await api('GET', '/api/config');
+        if (!r.ok) {
+            if (r.status === 403) document.getElementById('configError').textContent = 'Admin access required.';
+            else document.getElementById('configError').textContent = 'Failed to load configuration.';
+            return;
+        }
+        const cfg = await r.json();
+        document.getElementById('configEditor').value = JSON.stringify(cfg, null, 2);
+    }
+
+    async function saveConfig() {
+        document.getElementById('configError').textContent = '';
+        const editor = document.getElementById('configEditor');
+        let cfg;
+        try {
+            cfg = JSON.parse(editor.value);
+        } catch (e) {
+            document.getElementById('configError').textContent = 'Invalid JSON: ' + e.message;
+            return;
+        }
+        const r = await api('PUT', '/api/config', cfg);
+        if (r.ok) {
+            toast('Configuration saved and hot-reloaded.');
+        } else {
+            const e = await r.json().catch(() => ({error: 'Failed to save.'}));
+            document.getElementById('configError').textContent = e.error || 'Failed to save configuration.';
+            toast(e.error || 'Failed to save.', 'error');
+        }
+    }
+
+    async function reloadConfigFromDisk() {
+        document.getElementById('configError').textContent = '';
+        const r = await api('POST', '/api/config/reload');
+        if (r.ok) {
+            toast('Configuration reloaded from disk.');
+            loadConfig();
+        } else {
+            const e = await r.json().catch(() => ({error: 'Failed to reload.'}));
+            document.getElementById('configError').textContent = e.error || 'Failed to reload.';
+            toast(e.error || 'Failed to reload.', 'error');
+        }
     }
 
     (async function init() {
