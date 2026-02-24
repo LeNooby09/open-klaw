@@ -22,11 +22,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash coreutils curl git && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user with fixed UID/GID so bind-mount permissions are predictable
+# Create a non-root user with fixed UID/GID so bind-mount permissions are predictable.
+# Remove any pre-existing user/group that occupies the target UID/GID (e.g. "ubuntu" in some base images).
 ARG OPENKLAW_UID=1000
 ARG OPENKLAW_GID=1000
-RUN groupadd -r -g ${OPENKLAW_GID} openklaw && \
-    useradd -r -g openklaw -u ${OPENKLAW_UID} -m -d /home/openklaw -s /bin/bash openklaw
+RUN EXISTING_USER=$(getent passwd ${OPENKLAW_UID} | cut -d: -f1); \
+    [ -n "$EXISTING_USER" ] && [ "$EXISTING_USER" != "openklaw" ] && userdel "$EXISTING_USER" || true; \
+    EXISTING_GROUP=$(getent group ${OPENKLAW_GID} | cut -d: -f1); \
+    [ -n "$EXISTING_GROUP" ] && [ "$EXISTING_GROUP" != "openklaw" ] && groupdel "$EXISTING_GROUP" || true; \
+    groupadd -r -g ${OPENKLAW_GID} openklaw 2>/dev/null || true && \
+    useradd -r -g openklaw -u ${OPENKLAW_UID} -m -d /home/openklaw -s /bin/bash openklaw 2>/dev/null || true
 
 # Create workspace directory where file/shell tools operate (sandboxed)
 RUN mkdir -p /workspace /data/conversations /data/logs /data/skills && \
