@@ -141,10 +141,12 @@ Run everywhere: desktop, mobile, containers.
   by default for security. HTTPS enforcement for non-localhost connections has been removed to avoid blocking legitimate
   requests when behind a reverse proxy (e.g., nginx terminating TLS); HSTS header is still sent for non-localhost binds.
 - [x] **External YAML Configuration** — All application settings loaded from `config.yaml` at startup via
-  `ConfigLoader` (kaml/kotlinx.serialization). Supports partial configs (omitted fields use defaults), environment
-  variable overrides for key deployment settings (`OPENKLAW_PORT`, `OPENKLAW_BIND`, tool toggles), custom config path
-  via `--config=<path>` flag or `OPENKLAW_CONFIG` env var, and `--generate-config` to produce a fully-commented default
-  template. Unknown keys ignored for forward compatibility (`strictMode = false`).
+  `ConfigLoader` (kaml/kotlinx.serialization). The full config (all fields with defaults) is always persisted to disk —
+  partial/override-only files are automatically expanded on load so the disk file always contains the complete
+  configuration for easy editing. Environment variable overrides for key deployment settings (`OPENKLAW_PORT`,
+  `OPENKLAW_BIND`, tool toggles), custom config path via `--config=<path>` flag or `OPENKLAW_CONFIG` env var, and
+  `--generate-config` to produce a complete default config via YAML serialization of `AppConfig()`. Unknown keys
+  ignored for forward compatibility (`strictMode = false`).
 - [x] **Admin Config Dashboard & Hot-Reload** — Thread-safe `ConfigHolder` wraps `AppConfig` with `@Volatile` read and
   `@Synchronized` update/reload, YAML persistence to disk, and listener-based change notification for hot-reloading
   without application restart. Admin-only REST API: `GET /api/config` (read current config as JSON),

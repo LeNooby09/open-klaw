@@ -168,17 +168,17 @@ class ConfigLoaderTest {
 	}
 
 	@Test
-	fun `generateDefault produces valid YAML that parses to defaults`() {
+	fun `serializeToYaml produces valid YAML that parses to defaults`() {
 		val file = File(tempDir, "default.yaml")
-		file.writeText(ConfigLoader.generateDefault())
+		file.writeText(ConfigLoader.serializeToYaml(AppConfig()))
 
 		val config = ConfigLoader.load(file.absolutePath)
 		assertEquals(AppConfig(), config)
 	}
 
 	@Test
-	fun `generateDefault output contains key sections`() {
-		val text = ConfigLoader.generateDefault()
+	fun `serializeToYaml output contains key sections`() {
+		val text = ConfigLoader.serializeToYaml(AppConfig())
 		assertTrue(text.contains("gateway:"))
 		assertTrue(text.contains("llm:"))
 		assertTrue(text.contains("security:"))
@@ -203,6 +203,33 @@ class ConfigLoaderTest {
 			// Also acceptable — empty file is arguably invalid YAML for a config
 			assertTrue(e.message?.contains("Invalid configuration") == true)
 		}
+	}
+
+	@Test
+	fun `load expands partial config to full config on disk`() {
+		val file = File(tempDir, "partial.yaml")
+		file.writeText(
+			"""
+			gateway:
+			  port: 9999
+		""".trimIndent()
+		)
+
+		val config = ConfigLoader.load(file.absolutePath)
+		assertEquals(9999, config.gateway.port)
+
+		// After loading, the file on disk should contain the full config with all sections
+		val diskContent = file.readText()
+		assertTrue(diskContent.contains("gateway:"))
+		assertTrue(diskContent.contains("llm:"))
+		assertTrue(diskContent.contains("tools:"))
+		assertTrue(diskContent.contains("memory:"))
+		assertTrue(diskContent.contains("messaging:"))
+		assertTrue(diskContent.contains("scheduler:"))
+		assertTrue(diskContent.contains("skills:"))
+		assertTrue(diskContent.contains("maxToolCalls:"))
+		// Verify the override is preserved
+		assertTrue(diskContent.contains("9999"))
 	}
 
 	@Test

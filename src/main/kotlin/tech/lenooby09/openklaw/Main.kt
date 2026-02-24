@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import tech.lenooby09.openklaw.agent.AgentLoop
 import tech.lenooby09.openklaw.agent.ChatRequest
+import tech.lenooby09.openklaw.config.AppConfig
 import tech.lenooby09.openklaw.config.ConfigHolder
 import tech.lenooby09.openklaw.config.ConfigLoader
 import tech.lenooby09.openklaw.gateway.GatewayServer
@@ -74,7 +75,7 @@ fun main(args: Array<String>) {
 	if (args.contains("--generate-config")) {
 		val outputPath = args.firstOrNull { it.startsWith("--config=") }?.removePrefix("--config=") ?: "config.yaml"
 		val outputFile = java.io.File(outputPath)
-		outputFile.writeText(ConfigLoader.generateDefault())
+		outputFile.writeText(ConfigLoader.serializeToYaml(AppConfig()))
 		logger.info("Default configuration written to '${outputFile.absolutePath}'")
 		return
 	}
