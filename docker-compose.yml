@@ -2,8 +2,9 @@ services:
   open-klaw:
     build: .
     container_name: open-klaw
-    ports:
-      - "8080:8080"
+    # Use host networking so the container can reach host services (e.g. Ollama on localhost)
+    # This is required on Linux where host.docker.internal doesn't route to 127.0.0.1
+    network_mode: host
     volumes:
       # Persist workspace and conversation data between restarts
       - openklaw-workspace:/workspace
@@ -19,6 +20,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENKLAW_HOST_NETWORK=true
     # Allow container to reach host services (e.g. Ollama) via host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"

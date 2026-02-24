@@ -62,7 +62,10 @@ abstract class BaseLlmProvider(
 	protected fun resolveBaseUrl(): String {
 		val url = config.baseUrl.ifEmpty { return "" }
 		val sandboxed = System.getenv("OPENKLAW_SANDBOXED")?.equals("true", ignoreCase = true) == true
-		if (!sandboxed) return url
+		// With host networking (network_mode: host), localhost inside the container IS the host's
+		// localhost, so no URL rewriting is needed. Only rewrite when using bridge networking.
+		val hostNetwork = System.getenv("OPENKLAW_HOST_NETWORK")?.equals("true", ignoreCase = true) == true
+		if (!sandboxed || hostNetwork) return url
 		return url
 			.replace("://localhost:", "://host.docker.internal:")
 			.replace("://localhost/", "://host.docker.internal/")
